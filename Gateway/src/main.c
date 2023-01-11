@@ -5,6 +5,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <stdio.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <assert.h>
@@ -21,6 +22,7 @@
 #include "williotSdkJson.h"
 #include "logger.h"
 #include "upLink.h"
+#include "sdkConfigurations.h"
 
 void main(void)
 {
@@ -29,6 +31,8 @@ void main(void)
 
 	OsalInit();
 
+	ConfigurationInit();
+
 	devHandle = DevInit(DEV_BLE);
 	assert(devHandle);
 
@@ -36,14 +40,15 @@ void main(void)
 	sdkStatus = NetworkInit();
 	assert(sdkStatus == sdkStatus);
 
+	// testing!!!
+	// connectToNetwork();
+	// UpdateAccessToken(NULL);
+	connectToServer();
+
 	UpLinkInit(devHandle);
 	LoggerInit();
-
+	
 	OsalStart();
-
-	// testing!!!
-	connectToNetwork();
-	UpdateAccessToken(NULL);
 
 	OsalSleep(UINT32_MAX );
 }

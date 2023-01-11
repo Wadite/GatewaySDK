@@ -113,4 +113,33 @@ logger_local_handle DevLoggerInit();
  */
 SDK_STAT DevLoggerSend(logger_local_handle interface_handle, void* data, uint32_t length);
 
+/**
+ * @brief Init function to open storage
+ * @return SDK_SUCCESS upon success
+ * @return SDK_FAILURE upon internal error
+ */
+SDK_STAT DevStorageInit();
+
+/**
+ * @brief Read requsted param value as string of given key
+ * @param key requsted key to read as string
+ * @param value pointer to buffer to save the value of request key
+ * @param sizeOfValue size of given buffer to save value
+ * @return SDK_SUCCESS upon success
+ * @return SDK_INVALID_PARAMS upon receiving NULL pointer or sizeOfBuff is too small or key doesn't exist
+ * @return SDK_FAILURE upon internal error
+ */
+SDK_STAT DevStorageRead(const char * key, void * value, size_t sizeOfValue);
+
+/**
+ * @brief Write requsted param value as string of given key
+ * @param key requsted key to write as string
+ * @param value pointer to buffer to which contains value of key as string
+ * @param sizeOfValue size of given buffer to read value from
+ * @return SDK_SUCCESS upon success
+ * @return SDK_INVALID_PARAMS upon receiving NULL pointer or sizeOfBuff is zero
+ * @return SDK_FAILURE upon internal error
+ */
+SDK_STAT DevStorageWrite(const char * key , void * value, size_t sizeOfValue);
+
 #endif //_DEV_IF_H_

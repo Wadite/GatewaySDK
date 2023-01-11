@@ -1,12 +1,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+
 #include "logger.h"
 #include "osal.h"
 #include "williotSdkJson.h"
 #include "cJSON.h"
 #include "network-api.h"
 #include "dev-if.h"
+#include "sdkConfigurations.h"
 
 #define SIZE_OF_TIME_AND_TYPE           (28)
 #define SIZE_OF_MAX_LOG_MSG             (512)
@@ -15,7 +17,6 @@
 #define MS_IN_HOUR						(MS_IN_MINUTE * 60)
 #define MS_IN_DAY						(MS_IN_HOUR * 24)
 #define SIZE_OF_LOG_MEMORY_POOL         (4096)
-#define NUMBER_OF_MAX_LOG_MSG           (5)
 #define SIZE_OF_LOG_THREAD              (2048)
 #define LOG_TIMEOUT_TIME_MS             (600000) // 10 minutes
 
@@ -40,7 +41,8 @@ const char * s_logTypes[] = {
 
 static logger_local_handle s_loggerLocalHandle = 0;
 static Queue_t s_queueOfLogMsg = NULL;
-static LogMsg * s_tableOfLogMsg[NUMBER_OF_MAX_LOG_MSG] = {0};
+static LogMsg ** s_tableOfLogMsg = NULL;
+static int s_numberOfMaxLogMsg = 0;
 
 // JSON wrapping, free the string manualy
 static char * createLogJson(uint16_t indexOfLogMsg)
@@ -182,8 +184,8 @@ static LogMsg * buildLogMsgStruct(uint32_t timestamp, eLogTypes logType, char* m
 
 static void sendCurrentTable(uint16_t tableIndex)
 {
-    SDK_STAT status = SDK_SUCCESS;
-    char * logJSON = NULL;
+    // SDK_STAT status = SDK_SUCCESS;
+    // char * logJSON = NULL;
 
     if(tableIndex == 0)
     {
@@ -223,7 +225,7 @@ static void logMsgThreadFunc()
 #endif
         }
 
-        if(indexOfLogMsg == NUMBER_OF_MAX_LOG_MSG || (status == SDK_TIMEOUT))
+        if(indexOfLogMsg == s_numberOfMaxLogMsg || (status == SDK_TIMEOUT))
         {
             sendCurrentTable(indexOfLogMsg);
             indexOfLogMsg = 0;
@@ -233,9 +235,16 @@ static void logMsgThreadFunc()
 
 void LoggerInit()
 {
+    SDK_STAT status = SDK_SUCCESS;
+
+    status = GetLoggerNumberOfLogs(&s_numberOfMaxLogMsg);
+    assert(status == SDK_SUCCESS);
+
+    s_tableOfLogMsg = (LogMsg **)OsalMallocFromMemoryPool((s_numberOfMaxLogMsg * sizeof(LogMsg *)), &s_loggerMemPool);
+
     s_loggerLocalHandle = DevLoggerInit();
     assert(s_loggerLocalHandle);
-    s_queueOfLogMsg = OsalQueueCreate(NUMBER_OF_MAX_LOG_MSG);
+    s_queueOfLogMsg = OsalQueueCreate(s_numberOfMaxLogMsg);
     assert(s_queueOfLogMsg);
 }
 

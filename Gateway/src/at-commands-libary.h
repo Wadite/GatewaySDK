@@ -52,6 +52,12 @@ typedef enum{
     QUERY_THE_CURRENT_LOCAL_TIME = 2,
 }eQueryNetworkTimeMode;
 
+typedef enum{
+    MQTT_ACCESS_BUFFER_ACCESS = 0,
+    MQTT_ACCESS_DIRECT_PUSH = 1,
+    MQTT_ACCESS_TRANSPARENT = 2,
+}eMqttAccessMode;
+
 typedef struct{
     eModeOfTimeZoneReporting mode;
 }AtCtzrParams;
@@ -100,5 +106,29 @@ typedef struct{
     int inputTimeout;
     int responseTimeout;
 }AtQhttppost;
+
+typedef struct{
+    int pdpctxId;
+    int sslctxId;
+    int clientId;
+    const char * serverAddr;
+    int serverPort;
+    eMqttAccessMode accessMode;
+}AtQsslopen;
+
+typedef struct{
+    int clientId;
+    int payloadLength;
+}AtQsslsend;
+
+typedef struct{
+    int clientId;
+    int receiveLength;
+}AtQsslrecv;
+
+typedef struct{
+    int clientId;
+    eMqttAccessMode accessMode;
+}AtQiswtmd;
 
 #endif //_AT_COMMANDS_LIBARY_H

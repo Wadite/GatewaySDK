@@ -10,15 +10,25 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/drivers/gpio.h>
 
-#define PIN_CATM_EN             (25)
-#define PIN_PWRKET_MCU          (26)
+#define PIN_CATM_EN                                         (25)
+#define PIN_PWRKET_MCU                                      (26)
 
-#define KERNEL_STACK_SIZE       (4096)
-#define UART_RX_MSGQ_SIZE       (128)
-#define UART_TX_MSGQ_SIZE       (128)
-#define PROTOCOL_MAX_MSG_SIZE   (2048)
-#define INITAL_COUNT            (0)
-#define COUNT_LIMIT             (1)
+#define KERNEL_STACK_SIZE                                   (4096)
+#define UART_RX_MSGQ_SIZE                                   (128)
+#define UART_TX_MSGQ_SIZE                                   (128)
+#define PROTOCOL_MAX_MSG_SIZE                               (2048)
+#define INITAL_COUNT                                        (0)
+#define COUNT_LIMIT                                         (1)
+
+#define INPUT_STRING_FIRST                                  '>'
+#define INPUT_STRING_SECOND                                 ' '
+#define SIZE_OF_INPUT_STRING                                (2)
+#define IS_NORMAL_MSG_RECEIVED(msgBuf,msgSize)              ((msgBuf)[(msgSize) - 1] == '\n') 
+#define IS_INPUT_MSG_RECEIVED(msgBuf,msgSize)               (((msgSize) == SIZE_OF_INPUT_STRING) && \
+                                                                ((msgBuf)[(msgSize) - 2] == INPUT_STRING_FIRST) && \
+                                                                ((msgBuf)[(msgSize) - 1] == INPUT_STRING_SECOND))
+#define IS_MSG_TOO_LONG(msgSize)                            ((msgSize) == PROTOCOL_MAX_MSG_SIZE)
+
 
 static const struct device* s_uartDev;
 static struct k_thread s_uartReadThread;
@@ -106,14 +116,15 @@ static void uartRead(void* p1, void* p2, void* p3)
     int msgSize = 0;
     int result = 0;
     printk("uartRead thread running\n");
-
+    
     while (true) {
         result = k_msgq_get(&s_uartRxMsgq, &(s_msgBuf[msgSize]), K_FOREVER);
         __ASSERT((result >= 0),"Received error from k_msgq_get");
 
         msgSize++;
 
-        if (s_msgBuf[msgSize - 1] == '\n') 
+        // Normal command
+        if(IS_NORMAL_MSG_RECEIVED(s_msgBuf,msgSize)) 
         {
             s_msgBuf[msgSize-1] = '\0';
             s_msgBuf[msgSize-2] = '\0';
@@ -121,7 +132,16 @@ static void uartRead(void* p1, void* p2, void* p3)
             msgSize = 0;
         }
 
-        if (msgSize == PROTOCOL_MAX_MSG_SIZE) 
+        // Input string command
+        else if(IS_INPUT_MSG_RECEIVED(s_msgBuf,msgSize))
+        {
+            s_msgBuf[msgSize] = '\0';
+            processMessage(s_msgBuf, msgSize);
+            msgSize = 0;
+        }
+
+        // Msg too long
+        else if(IS_MSG_TOO_LONG(msgSize)) 
         {
             printk("Malformed s_uartDev message: too large\n");
             msgSize = 0;

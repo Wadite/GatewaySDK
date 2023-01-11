@@ -1,4 +1,6 @@
 #include "dev-if.h"
+#include "williotSdkJson.h"
+#include "cJSON.h"
 
 #include <zephyr/types.h>
 #include <stddef.h>
@@ -7,16 +9,26 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci.h>
 #include <zephyr/kernel.h>
+#include <zephyr/drivers/flash.h>
+#include <zephyr/storage/flash_map.h>
 
-#define INTERNAL_DEV_ID         (1)
-#define SCAN_INTERVAL           (0x0010)
-#define SCAN_WINDOWN            (0x0010)
-#define ADV_INTERVAL_MAX(ms)	((ms)*10/16)
-#define ADV_INTERVAL_MIN(ms)	((ms)*10/16)
-#define STACK_SIZE_OF_ADV       (512)
-#define INITAL_COUNT            (0)
-#define COUNT_LIMIT             (1)
-#define TEN_PRECENT_OF(val)     ((val)/10)
+#define INTERNAL_DEV_ID                     (1)
+#define SCAN_INTERVAL                       (0x0010)
+#define SCAN_WINDOWN                        (0x0010)
+#define ADV_INTERVAL_MAX(ms)	            ((ms)*10/16)
+#define ADV_INTERVAL_MIN(ms)	            ((ms)*10/16)
+#define STACK_SIZE_OF_ADV                   (512)
+#define INITAL_COUNT                        (0)
+#define COUNT_LIMIT                         (1)
+#define TEN_PRECENT_OF(val)                 ((val)/10)
+#define SIZE_OF_FLASH_PAGE                  (4096)
+#define SIZE_OF_WORD                        (4)
+#define FLASH_BEGIN                         (0)
+#define FIRST_JSON_CHAR_INDEX               (0)
+
+#define IS_JSON_NOT_IN_FLASH(flashPage)                 ((flashPage)[FIRST_JSON_CHAR_INDEX] != '{')
+#define GET_SIZE_FOR_ALIGNMENT(jsonStringSize)          ((SIZE_OF_WORD - ((jsonStringSize) + 1) % SIZE_OF_WORD))
+#define GET_ALIGNED_SIZE_FOR_STRING(jsonStringSize)     (((jsonStringSize) + 1) + GET_SIZE_FOR_ALIGNMENT(jsonStringSize))
 
 void devSendPackThread();
 
@@ -33,6 +45,7 @@ static bool s_isAdvertising = false;
 static struct bt_le_adv_param s_advParams = {0};
 static Timer_t s_advTimer = 0;
 DevHandlePacketCB s_receivedPacketFuncHandle = 0;
+const static struct flash_area * s_storageArea = NULL;
 
 void advTimerCallback()
 {
@@ -171,5 +184,224 @@ SDK_STAT DevLoggerSend(logger_local_handle interface_handle, void* data, uint32_
         return SDK_INVALID_PARAMS;
     }
     printk("%s\n",(char*)data);
+    return SDK_SUCCESS;
+}
+
+SDK_STAT DevStorageInit()
+{
+    int err = flash_area_open(FLASH_AREA_ID(storage), &s_storageArea);
+
+    return (err ? SDK_FAILURE : SDK_SUCCESS);
+}
+
+SDK_STAT DevStorageRead(const char * key , void * value, size_t sizeOfValue)
+{
+    int err = 0;
+    cJSON * flashJson = NULL;
+    cJSON * paramJson = NULL;
+    uint8_t* pageFromFlash = NULL;
+    char * jsonParmString = NULL;
+    int sizeOfJsonParmString = 0;
+
+    if(!key || !value || sizeOfValue == 0)
+    {
+        return SDK_INVALID_PARAMS;
+    }
+    
+    pageFromFlash = OsalMalloc(SIZE_OF_FLASH_PAGE);
+    if(!pageFromFlash)
+    {
+        return SDK_FAILURE;
+    }
+
+    err = flash_area_read(s_storageArea, FLASH_BEGIN, pageFromFlash, SIZE_OF_FLASH_PAGE);
+    if(err)
+    {
+        OsalFree(pageFromFlash);
+        return SDK_FAILURE;
+    }
+
+    if(IS_JSON_NOT_IN_FLASH(pageFromFlash))
+    {
+        OsalFree(pageFromFlash);
+        return SDK_NOT_FOUND;
+    }
+
+    flashJson = cJSON_Parse(pageFromFlash);
+    OsalFree(pageFromFlash);
+    if(!flashJson)
+    {
+        return SDK_FAILURE;
+    }
+
+    paramJson = cJSON_GetObjectItem(flashJson,key);
+    if(!paramJson)
+    {
+        cJSON_Delete(flashJson);
+        return SDK_NOT_FOUND;
+    }
+
+    jsonParmString = cJSON_GetStringValue(paramJson);
+    sizeOfJsonParmString = (strlen(jsonParmString) + 1);
+    if(!jsonParmString || (sizeOfJsonParmString > sizeOfValue))
+    {
+        FreeJsonString(jsonParmString);
+        return SDK_INVALID_PARAMS;
+    }
+    memcpy(value,jsonParmString, sizeOfJsonParmString);
+    cJSON_Delete(flashJson);
+
+    return SDK_SUCCESS;
+}
+
+static SDK_STAT addNewJsonKeyFlash(const char * key, void * buff, size_t sizeOfBuff, cJSON * root)
+{
+    cJSON * node = NULL;
+    node = cJSON_AddStringToObject(root, key, buff);
+    return (node) ? SDK_SUCCESS : SDK_FAILURE;
+}
+
+static SDK_STAT addExsistingJsonKeyFlash(const char * key, void * buff, size_t sizeOfBuff, cJSON * root)
+{
+    bool itemReplaced = false;
+    itemReplaced = cJSON_ReplaceItemInObject(root, key, cJSON_CreateString(buff)); // return?
+    return (itemReplaced) ? SDK_SUCCESS : SDK_FAILURE;
+}
+
+static SDK_STAT jsonToStringZeroPadded(cJSON * root, char ** jsonString, size_t * sizeOfAllocatedString)
+{
+    char * tempJsonString = cJSON_Print(root);
+    int sizeOfJsonString = 0;
+    cJSON_Delete(root);
+
+    sizeOfJsonString = strlen(tempJsonString);
+    *sizeOfAllocatedString = GET_ALIGNED_SIZE_FOR_STRING(sizeOfJsonString);
+    *jsonString = OsalCalloc(*sizeOfAllocatedString);
+
+    if(!(*jsonString))
+    {
+        FreeJsonString(tempJsonString);
+        return SDK_FAILURE;
+    }
+
+    memcpy(*jsonString, tempJsonString, strlen(tempJsonString));
+    FreeJsonString(tempJsonString);
+
+    return SDK_SUCCESS;
+}
+
+static SDK_STAT createNewJsonFlash(const char * key, void * buff, size_t sizeOfBuff)
+{
+    SDK_STAT status = SDK_SUCCESS;
+    int ans = 0;
+    char * jsonString = NULL;
+    size_t sizeOfAllocatedString = 0;
+    
+    ans = flash_area_erase(s_storageArea, FLASH_BEGIN, SIZE_OF_FLASH_PAGE);
+    if(ans)
+    {
+        return SDK_FAILURE;
+    }
+
+    cJSON *root = cJSON_CreateObject();
+
+    status = addNewJsonKeyFlash(key, buff, sizeOfBuff, root);
+    if(status != SDK_SUCCESS)
+    {
+        cJSON_Delete(root);
+        return status;
+    }
+
+    status = jsonToStringZeroPadded(root, &jsonString, &sizeOfAllocatedString);
+    if(status != SDK_SUCCESS)
+    {
+        return status;
+    }
+
+    ans = flash_area_write(s_storageArea, FLASH_BEGIN, jsonString, sizeOfAllocatedString); 
+    OsalFree(jsonString);
+    if(ans)
+    {
+        return SDK_FAILURE;
+    }
+
+    return SDK_SUCCESS;
+}
+
+SDK_STAT DevStorageWrite(const char * key, void * value, size_t sizeOfValue)
+{
+    int err = 0;
+    cJSON * flashJson = NULL;
+    uint8_t* pageFromFlash = NULL;
+    SDK_STAT status = SDK_SUCCESS;
+    char * jsonString = NULL;
+    size_t sizeOfAllocatedString = 0;
+
+    if(!key || !value || sizeOfValue == 0)
+    {
+        return SDK_INVALID_PARAMS;
+    }
+    
+    pageFromFlash = OsalMalloc(SIZE_OF_FLASH_PAGE);
+    if(!pageFromFlash)
+    {
+        return SDK_FAILURE;
+    }
+
+    err = flash_area_read(s_storageArea, FLASH_BEGIN, pageFromFlash, SIZE_OF_FLASH_PAGE);
+    if(err)
+    {
+        OsalFree(pageFromFlash);
+        return SDK_FAILURE;
+    }
+
+    if(IS_JSON_NOT_IN_FLASH(pageFromFlash))
+    {
+        OsalFree(pageFromFlash);
+        return createNewJsonFlash(key,value,sizeOfValue);
+    }
+
+    flashJson = cJSON_Parse(pageFromFlash);
+    OsalFree(pageFromFlash);
+    if(!flashJson)
+    {
+        return SDK_FAILURE;
+    }
+
+    if(!cJSON_HasObjectItem(flashJson, key))
+    {
+        status = addNewJsonKeyFlash(key, value, sizeOfValue, flashJson);
+    }
+    else
+    {
+        status = addExsistingJsonKeyFlash(key, value, sizeOfValue, flashJson);
+    }
+
+    if(status != SDK_SUCCESS)
+    {
+        cJSON_Delete(flashJson);
+        return status;
+    }
+
+    status = jsonToStringZeroPadded(flashJson, &jsonString, &sizeOfAllocatedString);
+    if(status != SDK_SUCCESS)
+    {
+        return SDK_FAILURE;
+    }
+
+    int ans = flash_area_erase(s_storageArea, FLASH_BEGIN, SIZE_OF_FLASH_PAGE);
+    if(ans)
+    {
+        OsalFree(jsonString);
+        return SDK_FAILURE;
+    }
+
+    ans = flash_area_write(s_storageArea, FLASH_BEGIN, jsonString, sizeOfAllocatedString); 
+    OsalFree(jsonString);
+    if(ans)
+    {
+        return SDK_FAILURE;
+    }
+
     return SDK_SUCCESS;
 }
