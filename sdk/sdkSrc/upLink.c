@@ -10,6 +10,7 @@
 #include "network-api.h"
 #include "logger.h"
 #include "sdkConfigurations.h"
+#include "mqttTopics.h"
 
 #define SIZE_OF_ADV_PAYLOAD                         (29)
 #define ADV_PACKET_PAYLOAD_OFFSET                   (2)
@@ -178,7 +179,7 @@ static void sendLastUpLinkMsg(UpLinkMsg * lastUpLinkMsg)
     convertPayloadToString(lastUpLinkMsg->payload, s_lastUpLinkPayloadString, SIZE_STATIC_PAYLOAD);
     upLinkJson = createUpLinkJson(lastUpLinkMsg, s_lastUpLinkPayloadString);
 
-    status = NetSendMQTTPacket((void*) upLinkJson, strlen(upLinkJson));
+    status = NetSendMQTTPacket(GetMqttUpLinkTopic(), (void*) upLinkJson, strlen(upLinkJson));
     assert(status == SDK_SUCCESS);
 
     FreeJsonString(upLinkJson);

@@ -28,6 +28,7 @@
 #define RESPONSE_EVENT_BIT_SET				(0x001)
 
 #define IS_JSON_PREFIX(buff)			  	(*(buff) == '{')
+#define IS_WAITED_WORD(word,cmpWord,size)	(memcmp((word), (cmpWord), (size)) == 0)
 
 #define SEARCHING_SEQUENCE					"020202"
 #define TAKE_EFFECT_IMMEDIATELY				(1)
@@ -59,7 +60,6 @@
 #define TIME_TO_RETRY_TOKEN_RECEIVE			(30000)
 #define SIZE_OF_RESPONSE_PAYLOAD			(20)
 #define SIZE_OF_ADDRESS_BUFFER				(256)
-#define SIZE_OF_MQTT_TOPIC					(128)
 
 #define HEADER_SEPERATE					    ": "
 #define HEADER_HOST							"Host"
@@ -95,21 +95,19 @@
 #define MQTT_RECEIVE_LENGTH					(1500)
 #define MQTT_KEEP_ALIVE_INTERVAL			(60)
 #define MQTT_CLEAN_SESSION					(1)
-#define MQTT_DOWNLINK_PREFIX				"update-test/"
-#define MQTT_UPLINK_PREFIX					"data-test/"
-#define MQTT_DOWNLINK_TOPIC					getMqttDownlinkTopic()
-#define MQTT_UPLINK_TOPIC					getMqttUpLinkTopic()
 #define MQTT_CONNECT_FOOTER_CHAR			(32)
 #define MQTT_SUBSCRIBE_FOOTER_CHAR			(144)
 #define MQTT_PACKET_DEFAULT_DUP				(0)
 #define MQTT_PACKET_DEFAULT_QOS				(0)
 #define MQTT_PACKET_DEFAULT_FLAG			(0)
 #define MQTT_PUBLISH_TIME_RESPONSE			(1000)
+#define MQTT_ERROR_CODE_CONNECT				{32,2,0,0}
+#define MQTT_ERROR_CODE_SUBSCRIBE			{144,3,0,1,0}
 
 typedef struct{
 	bool isWaitingResponse;
-	char * cmprStr;
-	size_t strSize;
+	char * cmprWord;
+	size_t wordSize;
 } CallbackStruct;
 
 static struct k_event s_responseEvent;
@@ -121,8 +119,9 @@ static char s_responseExtraPayload[SIZE_OF_RESPONSE_PAYLOAD + 1] = {0};
 static bool s_isLTEConfigurationDone = false;
 static unsigned char s_mqttPacketBuff[MQTT_MAX_PACKET_SIZE] = {0};
 static char s_addressStringBuffer[SIZE_OF_ADDRESS_BUFFER] = {0};
+NetMQTTPacketCB s_receivedMQTTPacketHandle = 0;
 
-static char * s_tempAccessTokenForNow = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImd0eSI6WyJwYXNzd29yZCJdLCJraWQiOiJvOTcyWGR3SEZkTDlaWVZ3NmJ3QW12QXdUczQifQ.eyJhdWQiOiJjY2NiNjlhMy1iODFkLTQ5NDEtODJlOC00MDhmOTYwOWM4MDIiLCJleHAiOjE2NzM0NzMzODAsImlhdCI6MTY3MzQzMDE4MCwiaXNzIjoiYWNtZS5jb20iLCJzdWIiOiIwOTFiZDY2MC00MGQ2LTQ0YmItYWMzNS0yNTFmYzcwNzg3YTciLCJlbWFpbCI6IjEwMjExNTAwNDc0MGd3QHdpbGlvdC5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiYXBwbGljYXRpb25JZCI6ImNjY2I2OWEzLWI4MWQtNDk0MS04MmU4LTQwOGY5NjA5YzgwMiIsInJvbGVzIjpbImdhdGV3YXkiLCJnYXRld2F5Il0sInRpZCI6IjQyYWE5MzMxLTM0OTYtNGIyOS1hNGFkLTEyMTViOGRjMzQ5MCIsInVzZXJuYW1lIjoiMTAyMTE1MDA0NzQwIn0.kmjmalAuGnvmbaidTajEfUG4dIllE2drtDnkcjBhsexTF7fPGcoT-fI0mYGYSIvDSNX_jHUkBJM22OEm3fqVVmu01mcC7r71c7tItpvBonPYSGMbWVMku_2-5ofDbAJdQLqnVb5bmk-46L4PqjU4PEfZy_OWxKYwOqmAHpk1KKtuMMXQ5OaTRsrBCxrhjuUHEiMJ7uYTotpDBjBOe1osdswyVRa4mQtU-RX1qSxPRTs7BIYygcelqjI7znHdgW0b48awx81QjPPgaIxFdEBZKiwkBfvNbn8PwhKAi6zY7bdzYCoa1dICbgm8G0Jas1vQ_mb1szggs0ZOwYOuj-ulEg";
+static char * s_tempAccessTokenForNow = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImd0eSI6WyJwYXNzd29yZCJdLCJraWQiOiJvOTcyWGR3SEZkTDlaWVZ3NmJ3QW12QXdUczQifQ.eyJhdWQiOiJjY2NiNjlhMy1iODFkLTQ5NDEtODJlOC00MDhmOTYwOWM4MDIiLCJleHAiOjE2NzM5ODQ4ODgsImlhdCI6MTY3Mzk0MTY4OCwiaXNzIjoiYWNtZS5jb20iLCJzdWIiOiIwOTFiZDY2MC00MGQ2LTQ0YmItYWMzNS0yNTFmYzcwNzg3YTciLCJlbWFpbCI6IjEwMjExNTAwNDc0MGd3QHdpbGlvdC5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiYXBwbGljYXRpb25JZCI6ImNjY2I2OWEzLWI4MWQtNDk0MS04MmU4LTQwOGY5NjA5YzgwMiIsInJvbGVzIjpbImdhdGV3YXkiLCJnYXRld2F5Il0sInRpZCI6IjQyYWE5MzMxLTM0OTYtNGIyOS1hNGFkLTEyMTViOGRjMzQ5MCIsInVzZXJuYW1lIjoiMTAyMTE1MDA0NzQwIn0.hjgMV2rHOLw71EHmsOfCVornRzvgANdR5Ub1MNnRPaWBs4Za3OjjJ1KX_dtHuFu1xk1U7P43dy26pOrVu3u-islv-OuxOwbwNLut-BgpSy6GAi_KYM0okez3yGvxgUFCHtmL9wAV1mMx4HOYvQluMGN3oguK40-YatdYdZt6EFvmxV5GzMGiSawUNLC6rnX60lVGnKThydPABZMKjk3PlcK2sQUaiRX-FbsMYVohIUYABJTiLfCfS4ufGJX58rkwGeZK_AgheJvgN_zDq9z6iaA-REO3EtkZ1TyL5AJ3B_5s5XoN0iofmHRf-WXk7P9m3fHBzYo7_Hj1btl5bnxpjw";
 
 static char * getUrlExtGateWayOwn(char * buff) 
 {
@@ -192,60 +191,32 @@ static char * getBodyRegDevCodePre(char * buff)
     return buff; 
 }
 
-static char * getMqttTopic(const char * topicPrefix, char * buff)
+static void postConnectionMessageProcess(uint8_t* buff, uint16_t buffSize)
 {
-	SDK_STAT status = SDK_SUCCESS;
-	int offset = 0;
-	const char * gateWayPtr = NULL;
+	static bool incommingServerMsg = false;
 
-	assert(buff && topicPrefix);
-	offset = sprintf(buff, "%s", topicPrefix);
-	status = GetGateWayID(&gateWayPtr);
-	assert(status == SDK_SUCCESS);
-    offset += sprintf(buff + offset, "%s", gateWayPtr);
-	offset += sprintf(buff + offset, "%s", "/");
-	status = GetGateWayName(&gateWayPtr);
-	assert(status == SDK_SUCCESS);
-    offset += sprintf(buff + offset, "%s", gateWayPtr);
+	printk("NEW MSG FROM MODEM :\n");
 
-    return buff; 
-}
-
-static char * getMqttDownlinkTopic() 
-{
-	static char downLinkTopicBuff[SIZE_OF_MQTT_TOPIC] = {0};
-	static bool isDownLinkInitalized = false;
-
-	if(!isDownLinkInitalized)
+	if(strncmp(MQTT_BROKER_RESPONSE_STRING, buff, strlen(MQTT_BROKER_RESPONSE_STRING)) == 0)
 	{
-		isDownLinkInitalized = true;
-		return getMqttTopic(MQTT_DOWNLINK_PREFIX, downLinkTopicBuff);
+		incommingServerMsg = true;
 	}
-
-	return downLinkTopicBuff;
-}
-
-static char * getMqttUpLinkTopic() 
-{
-	static char upLinkTopicBuff[SIZE_OF_MQTT_TOPIC] = {0};
-	static bool isUpLinkInitalized = false;
-
-	if(!isUpLinkInitalized)
+	else if(incommingServerMsg && s_receivedMQTTPacketHandle)
 	{
-		isUpLinkInitalized = true;
-		return getMqttTopic(MQTT_UPLINK_PREFIX, upLinkTopicBuff);
+		s_receivedMQTTPacketHandle(buff,buffSize);
+		incommingServerMsg = false;
 	}
-
-	return upLinkTopicBuff;
+	else
+	{
+		printk("%s\n",buff);
+	}
 }
 
 static void modemReadCallback(uint8_t* buff, uint16_t buffSize)
 {	
 	if(s_isLTEConfigurationDone)
 	{
-		//TODO: will be changed for downlink
-		printk("NEW MSG FROM MODEM :\n");
-		printk("%s\n",buff);
+		postConnectionMessageProcess(buff, buffSize);
 	}
 
 	else
@@ -261,43 +232,34 @@ static void modemReadCallback(uint8_t* buff, uint16_t buffSize)
 			printk("%s\r\n",cJsonString);
 			FreeJsonString(cJsonString);
 		}
-
-		// Error code 
-		else if((*(buff) == MQTT_CONNECT_FOOTER_CHAR) || (*(buff) == MQTT_SUBSCRIBE_FOOTER_CHAR))
-		{
-			printk("Received error code %d%d%d (Think what todo)", *(buff+1),*(buff+2),*(buff+3));
-		}
-
 		else
 		{
 			printk("%s\r\n",buff);
 		}
-
 	}
-		if(strncmp(buff, s_callbackStruct.cmprStr, s_callbackStruct.strSize) == 0)
-		{
-			if(buffSize > s_callbackStruct.strSize)
-			{	
-				__ASSERT(((buffSize - s_callbackStruct.strSize) < SIZE_OF_RESPONSE_PAYLOAD),"SIZE_OF_RESPONSE_PAYLOAD is too small");
-				sprintf(s_responseExtraPayload, "%s", (buff + s_callbackStruct.strSize));
-			}
 
-			k_event_post(&s_responseEvent, RESPONSE_EVENT_BIT_SET);
+	if(IS_WAITED_WORD(buff,s_callbackStruct.cmprWord, s_callbackStruct.wordSize))
+	{
+		if(buffSize > s_callbackStruct.wordSize)
+		{	
+			__ASSERT(((buffSize - s_callbackStruct.wordSize) < SIZE_OF_RESPONSE_PAYLOAD),"SIZE_OF_RESPONSE_PAYLOAD is too small");
+			sprintf(s_responseExtraPayload, "%s", (buff + s_callbackStruct.wordSize));
 		}
-
+		k_event_post(&s_responseEvent, RESPONSE_EVENT_BIT_SET);
+	}
 }
 
-static inline SDK_STAT modemResponseWait(char * waitString, size_t stringSize, uint32_t timeToWait)
+static inline SDK_STAT modemResponseWait(char * waitWord, size_t wordSize, uint32_t timeToWait)
 {
 	uint32_t waitEventState = 0;
 
-	if(!waitString || stringSize == 0)
+	if(!waitWord || wordSize == 0)
 	{
 		return SDK_INVALID_PARAMS;
 	}
 
-	s_callbackStruct.cmprStr = waitString;
-	s_callbackStruct.strSize = stringSize;
+	s_callbackStruct.cmprWord = waitWord;
+	s_callbackStruct.wordSize = wordSize;
 	waitEventState = k_event_wait(&s_responseEvent, RESPONSE_EVENT_BIT_SET, true, K_MSEC(timeToWait));
 
 	if(waitEventState == 0)
@@ -774,14 +736,6 @@ static SDK_STAT sendSSLPacket(int clientId, int packetLength)
 	status = modemResponseWait(MQTT_BROKER_RESPONSE_STRING, strlen(MQTT_BROKER_RESPONSE_STRING), MODEM_WAKE_TIMEOUT);
 	__ASSERT((status == SDK_SUCCESS),"modemResponseWait internal fail");
 
-	cmndsParams.atQsslrecv.clientId = clientId;
-	cmndsParams.atQsslrecv.receiveLength = MQTT_RECEIVE_LENGTH;
-
-	status = AtWriteCmd(AT_CMD_QSSLRECV, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	__ASSERT((status == SDK_SUCCESS),"modemResponseWait internal fail");
-
 	return SDK_SUCCESS;
 }
 
@@ -792,6 +746,7 @@ static void connectToSSL()
 	const char * gateWayNamePtr = NULL;
 	const char * gateWayIdPtr = NULL;
 	MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
+	uint8_t errCode[] = MQTT_ERROR_CODE_CONNECT;
 
 	status = GetGateWayName(&gateWayNamePtr);
 	assert(status == SDK_SUCCESS);
@@ -810,9 +765,12 @@ static void connectToSSL()
 
 	status = sendSSLPacket(MQTT_CLIENT_IDX, len);
 	__ASSERT((status == SDK_SUCCESS),"sendSslPacket internal fail");
+
+	status = modemResponseWait((char*)errCode, sizeof(errCode), MODEM_WAKE_TIMEOUT);
+	__ASSERT((status == SDK_SUCCESS),"modemResponseWait internal fail");
 }
 
-static void subscribeToTopic(char * topic)
+SDK_STAT SubscribeToTopic(char * topic)
 {
 	int req_qos = 0;
 	int len = 0;
@@ -820,6 +778,12 @@ static void subscribeToTopic(char * topic)
 	static int packetId = 0;
 	SDK_STAT status = SDK_SUCCESS;
 	MQTTString topicString = MQTTString_initializer;
+	uint8_t errCode[] = MQTT_ERROR_CODE_SUBSCRIBE;
+
+	if(!topic) 
+	{
+		return SDK_INVALID_PARAMS;
+	}
 
 	topicString.cstring = topic;
 	numOfTopicFiltersAndQosArray++;
@@ -829,7 +793,18 @@ static void subscribeToTopic(char * topic)
 	__ASSERT(len,"MQTTSerialize_subscribe internal fail");
 
 	status = sendSSLPacket(MQTT_CLIENT_IDX, len);
-	__ASSERT((status == SDK_SUCCESS),"sendSslPacket internal fail");
+	if(status != SDK_SUCCESS)
+	{
+		return status;
+	}
+
+	status = modemResponseWait((char*)errCode, sizeof(errCode), MODEM_WAKE_TIMEOUT);
+	if(status != SDK_SUCCESS)
+	{
+		return status;
+	}
+
+	return SDK_SUCCESS;
 }
 
 conn_handle connectToServer()
@@ -838,9 +813,6 @@ conn_handle connectToServer()
     AtCmndsParams cmndsParams = {0};
 
 	openSSLLink();
-	connectToSSL();
-	//TODO: will be changed for downlink
-	// subscribeToTopic(MQTT_DOWNLINK_TOPIC);
 
 	cmndsParams.atQiswtmd.clientId = MQTT_CLIENT_IDX;
 	cmndsParams.atQiswtmd.accessMode = MQTT_ACCESS_DIRECT_PUSH;
@@ -849,6 +821,8 @@ conn_handle connectToServer()
     __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
 	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
 	__ASSERT((status == SDK_SUCCESS),"modemResponseWait internal fail");
+
+	connectToSSL();
 
 	ModemSend(TURN_OFF_AT_CMD_ECHO,strlen(TURN_OFF_AT_CMD_ECHO));
 	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
@@ -859,7 +833,7 @@ conn_handle connectToServer()
 	return NULL;
 }
 
-SDK_STAT NetSendMQTTPacket(void* pkt, uint32_t length)
+SDK_STAT NetSendMQTTPacket(const char* topic, void* pkt, uint32_t length)
 {
 	int len = 0;
 	static unsigned short packetId = 0;
@@ -868,12 +842,12 @@ SDK_STAT NetSendMQTTPacket(void* pkt, uint32_t length)
     AtCmndsParams cmndsParams = {0};
 	MQTTString topicString = MQTTString_initializer;
 
-	if(!pkt || length == 0)
+	if(!pkt || !topic || length == 0)
 	{
 		return SDK_INVALID_PARAMS;
 	}
-
-	topicString.cstring = MQTT_UPLINK_TOPIC;
+	//casting to work with the library. topic is still const
+	topicString.cstring = (char*)topic;
 	len = MQTTSerialize_publish(s_mqttPacketBuff, sizeof(s_mqttPacketBuff), MQTT_PACKET_DEFAULT_DUP, 
 								MQTT_PACKET_DEFAULT_QOS, MQTT_PACKET_DEFAULT_FLAG, (++packetId), 
 								topicString, (unsigned char*)pkt, length);
@@ -889,4 +863,16 @@ SDK_STAT NetSendMQTTPacket(void* pkt, uint32_t length)
 	status = modemResponseWait(MQTT_GOOD_PUBLISH_RESPOSE, strlen(MQTT_GOOD_PUBLISH_RESPOSE), MQTT_PUBLISH_TIME_RESPONSE);
 
 	return SDK_SUCCESS;
+}
+
+SDK_STAT RegisterNetReceiveMQTTPacketCallback(NetMQTTPacketCB cb)
+{
+	if(!cb)
+    {
+        return SDK_INVALID_PARAMS;
+    }
+
+    s_receivedMQTTPacketHandle = cb;
+
+    return SDK_SUCCESS;
 }
