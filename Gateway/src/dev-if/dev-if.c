@@ -35,11 +35,6 @@ void devSendPackThread();
 OSAL_THREAD_CREATE(advThread, devSendPackThread, STACK_SIZE_OF_ADV, THREAD_PRIORITY_LOW);
 K_SEM_DEFINE(s_sendPackSem, INITAL_COUNT, COUNT_LIMIT);
 
-static uint8_t s_adDataBuffer[MAX_ADV_DATA_SIZE] = {0};
-static const struct bt_data s_advBtData[] = {
-    BT_DATA(BT_DATA_LE_SC_RANDOM_VALUE, s_adDataBuffer, MAX_ADV_DATA_SIZE),
-};
-
 static dev_handle internalDevHandle = 0;
 static bool s_isAdvertising = false;
 static struct bt_le_adv_param s_advParams = {0};
@@ -121,19 +116,18 @@ SDK_STAT DevSendPacket(dev_handle dev, uint32_t duration,
 {
     SDK_STAT sdkStatus = 0;
     int err = 0;
+    const struct bt_data advBtData[] = {{BT_DATA_LE_SC_RANDOM_VALUE,  length, (uint8_t*)data}};
 
     if(!dev || !duration || !interval || !data || !length || length > MAX_ADV_DATA_SIZE)
     {
         return SDK_INVALID_PARAMS;
     }
 
-    memcpy(s_adDataBuffer, data, length);
-
     s_advParams.options = BT_LE_ADV_OPT_USE_NAME;
     s_advParams.interval_max = ADV_INTERVAL_MAX(interval+TEN_PRECENT_OF(interval));
     s_advParams.interval_min = ADV_INTERVAL_MIN(interval-TEN_PRECENT_OF(interval));
 
-    err = bt_le_adv_start(&s_advParams, s_advBtData, ARRAY_SIZE(s_advBtData), NULL, 0);
+    err = bt_le_adv_start(&s_advParams, advBtData, ARRAY_SIZE(advBtData), NULL, 0);
     if (err) 
     {
         printk("Advertising failed to start (err %d)\n", err);

@@ -22,7 +22,9 @@
 #include "williotSdkJson.h"
 #include "logger.h"
 #include "upLink.h"
+#include "downLink.h"
 #include "sdkConfigurations.h"
+#include "mqttTopics.h"
 
 void main(void)
 {
@@ -38,13 +40,14 @@ void main(void)
 
 	InitJsonHooks();
 	sdkStatus = NetworkInit();
-	assert(sdkStatus == sdkStatus);
+	assert(sdkStatus == SDK_SUCCESS);
 
 	// testing!!!
 	// connectToNetwork();
 	// UpdateAccessToken(NULL);
 	connectToServer();
 
+	DownLinkInit(devHandle);
 	UpLinkInit(devHandle);
 	LoggerInit();
 	

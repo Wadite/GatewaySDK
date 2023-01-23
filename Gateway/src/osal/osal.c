@@ -39,27 +39,6 @@ void OsalCallbackWrapper(void * func1, void * func2, void * func3)
     funPtr(NULL);
 }
 
-int OsalConvertPriority(ThreadPriority requestedPriority)
-{
-    int tempPriority = 0;
-
-    switch(requestedPriority)
-    {
-        case THREAD_PRIORITY_LOW:
-            tempPriority = K_LOWEST_APPLICATION_THREAD_PRIO;
-            break;
-
-        case THREAD_PRIORITY_MEDIUM:
-            tempPriority = 0;
-            break;
-
-        case THREAD_PRIORITY_HIGH:
-            tempPriority = K_HIGHEST_APPLICATION_THREAD_PRIO;
-            break;
-    }
-    return tempPriority;
-}
-
 uint32_t OsalGetTime()
 {
     return k_uptime_get_32();

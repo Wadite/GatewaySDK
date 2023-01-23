@@ -17,6 +17,7 @@
 typedef void* net_handle;
 typedef void* conn_handle;
 typedef void* Token;
+typedef void (*NetMQTTPacketCB)(void* data, uint32_t length);
 
 /**
  * @brief initialize the Network stack and make sure it is ready to connect to the network.
@@ -86,19 +87,30 @@ SDK_STAT RegisterConnStateChangeCB(handleConnStateChangeCB cb, conn_handle handl
  * 
  * @param pkt complete valid JSON payload of the MQTT message
  * @param length length of the JSON message.
+ * @param topic the topic to send the mqtt packet too as string.
  * 
  * @return SDK_SUCCESS upon success, relevant error otherwise
  */
-SDK_STAT NetSendMQTTPacket(void* pkt, uint32_t length);
+SDK_STAT NetSendMQTTPacket(const char* topic, void* pkt, uint32_t length);
+
+/**
+ * @brief subscribes to given topic
+ * 
+ * @param topic as string
+ * 
+ * @return SDK_SUCCESS upon success, relevant error otherwise
+ */
+SDK_STAT SubscribeToTopic(char * topic);
 
 /**
  * @brief gets an MQTT message on the subscribed topic, extracts JSON payload and call DnlnkPkt()
  * 
  * @param pkt complete valid JSON payload of the MQTT message
  * @param length length of the JSON message.
+ * @param topic the topic the message was received for as string
  * @return SDK_SUCCESS upon success, relevant error otherwise 
  */
-SDK_STAT NetHandlePacket(void* pkt, uint32_t length);
+SDK_STAT NetHandlePacket(const char* topic, void* pkt, uint32_t length);
 
 /**
  * @brief Get the Access Token object
@@ -144,11 +156,15 @@ SDK_STAT RefreshToken();
  * @brief a checker API to test if access token is valid or not.
  * Function shall test vs. actual timestamp and update during refresh process.
  * 
+ * @param accessToken
+ * 
  * @return true if token is valid
  * @return false if token is not valid
  */
-bool IsAccessTokenValid();
+bool IsAccessTokenValid(Token* token);
 
 SDK_STAT ConfigMQTTPacket(void* pkt, uint32_t length);
+
+SDK_STAT RegisterNetReceiveMQTTPacketCallback(NetMQTTPacketCB cb);
 
 #endif //_NETWORK_API_H_

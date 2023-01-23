@@ -26,7 +26,9 @@ target_sources(app PRIVATE ../sdk/sdkSrc/cJSON.c)
 target_sources(app PRIVATE ../sdk/sdkSrc/logger.c)
 target_sources(app PRIVATE ../sdk/sdkSrc/williotSdkJson.c)
 target_sources(app PRIVATE ../sdk/sdkSrc/upLink.c)
+target_sources(app PRIVATE ../sdk/sdkSrc/downLink.c)
 target_sources(app PRIVATE ../sdk/sdkSrc/sdkConfigurations.c)
+target_sources(app PRIVATE ../sdk/sdkSrc/mqttTopics.c)
 
 # This for MQTT
 target_sources(app PRIVATE src/MQTT/MQTTConnectClient.c)
