@@ -149,4 +149,6 @@ SDK_STAT RefreshToken();
  */
 bool IsAccessTokenValid();
 
+SDK_STAT ConfigMQTTPacket(void* pkt, uint32_t length);
+
 #endif //_NETWORK_API_H_

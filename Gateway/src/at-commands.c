@@ -2,7 +2,7 @@
 #include <assert.h>
 #include <string.h>
 
-#define FULL_MESSAGE_BUFFER_SIZE    (128)
+#define FULL_MESSAGE_BUFFER_SIZE    (2048)
 #define COMMAND_PREFIX_SYMBOL       ('+')
 #define COMMAND_READ_SYMBOL         ('?')
 #define COMMAND_SEPERATE_SYMBOL     (',')
@@ -34,6 +34,10 @@ static const char * s_atCmdsTable[AT_CMD_NUM] = {
     [AT_CMD_QHTTPGET]   = "QHTTPGET",
     [AT_CMD_QHTTPPUT]   = "QHTTPPUT",
     [AT_CMD_QHTTPREAD]  = "QHTTPREAD",
+    [AT_CMD_QSSLOPEN]   = "QSSLOPEN",
+    [AT_CMD_QSSLSEND]   = "QSSLSEND",
+    [AT_CMD_QSSLRECV]   = "QSSLRECV",
+    [AT_CMD_QISWTMD]     ="QISWTMD",
 };
 
 static const char * s_atQcfgExtConfgCmndTable[EXTENDED_CONFIGURE_NUM] = {
@@ -140,6 +144,44 @@ static inline int writeQhttread(const AtCmndsParams * cmndParams, int offset)
     return sprintf((bufferForTesting + offset), "%d", cmndParams->atQhttpurl.urlTimeout);
 }
 
+static inline int writeQsslopen(const AtCmndsParams * cmndParams, int * offset)
+{
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%d", cmndParams->atQsslopen.pdpctxId);
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%c", COMMAND_SEPERATE_SYMBOL);
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%d", cmndParams->atQsslopen.sslctxId);
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%c", COMMAND_SEPERATE_SYMBOL);
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%d", cmndParams->atQsslopen.clientId);
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%c", COMMAND_SEPERATE_SYMBOL);
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%c", COMMAND_STRING_SYMBOL);
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%s", cmndParams->atQsslopen.serverAddr);
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%c", COMMAND_STRING_SYMBOL);
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%c", COMMAND_SEPERATE_SYMBOL);
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%d", cmndParams->atQsslopen.serverPort);
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%c", COMMAND_SEPERATE_SYMBOL);
+    return sprintf((bufferForTesting + (*offset)), "%d", cmndParams->atQsslopen.accessMode); 
+}
+
+static inline int writeQsslsend(const AtCmndsParams * cmndParams, int * offset)
+{
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%d", cmndParams->atQsslsend.clientId);
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%c", COMMAND_SEPERATE_SYMBOL);
+    return sprintf((bufferForTesting + (*offset)), "%d", cmndParams->atQsslsend.payloadLength);  
+}
+
+static inline int writeQsslrecv(const AtCmndsParams * cmndParams, int * offset)
+{
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%d", cmndParams->atQsslrecv.clientId);
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%c", COMMAND_SEPERATE_SYMBOL);
+    return sprintf((bufferForTesting + (*offset)), "%d", cmndParams->atQsslrecv.receiveLength);  
+}
+
+static inline int writeQiswtmd(const AtCmndsParams * cmndParams, int * offset)
+{
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%d", cmndParams->atQiswtmd.clientId);
+    (*offset) += sprintf((bufferForTesting + (*offset)), "%c", COMMAND_SEPERATE_SYMBOL);
+    return sprintf((bufferForTesting + (*offset)), "%d", cmndParams->atQiswtmd.accessMode);  
+}
+
 SDK_STAT AtTestCmd()
 {
     // For now not implemeted because no test commands, always fails
@@ -233,7 +275,23 @@ SDK_STAT AtWriteCmd(const eAtCmds atCmd, const AtCmndsParams * cmndParams)
 
         case AT_CMD_QHTTPREAD:
             offset += writeQhttread(cmndParams, offset);
-            break;       
+            break;
+
+        case AT_CMD_QSSLOPEN:
+            offset += writeQsslopen(cmndParams, &offset);
+            break;
+
+        case AT_CMD_QSSLSEND:
+            offset += writeQsslsend(cmndParams, &offset);
+            break;
+
+        case AT_CMD_QSSLRECV:
+            offset += writeQsslrecv(cmndParams, &offset);
+            break;
+
+        case AT_CMD_QISWTMD:
+            offset += writeQiswtmd(cmndParams, &offset);
+            break;
 
         default:
             return SDK_INVALID_PARAMS;  

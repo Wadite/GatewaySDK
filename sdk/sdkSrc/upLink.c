@@ -9,6 +9,7 @@
 #include "cJSON.h"
 #include "network-api.h"
 #include "logger.h"
+#include "sdkConfigurations.h"
 
 #define SIZE_OF_ADV_PAYLOAD                         (29)
 #define ADV_PACKET_PAYLOAD_OFFSET                   (2)
@@ -22,8 +23,6 @@
 
 #define UUID_FIRST_INDEX                            (2)
 #define UUID_SECOND_INDEX                           (3)
-#define WILLIOT_UUID_FIRST_BYTE                     (0xFD)
-#define WILLIOT_UUID_SECOND_BYTE                    (0xAF)
 
 OSAL_CREATE_POOL(s_upLinkMemPool, SIZE_OF_UP_LINK_MEMORY_POOL);
 
@@ -36,7 +35,7 @@ typedef struct{
 
 static void upLinkMsgThreadFunc();
 static Queue_t s_queueOfUpLinkMsg = NULL;
-static uint8_t williotUUID[] = {0xFD,0xAF};
+static uint8_t williotUUID[] = {0,0};
 
 OSAL_THREAD_CREATE(upLinkMsgThread, upLinkMsgThreadFunc, SIZE_OF_UP_LINK_THREAD, THREAD_PRIORITY_MEDIUM);
 
@@ -179,7 +178,7 @@ static void sendLastUpLinkMsg(UpLinkMsg * lastUpLinkMsg)
     convertPayloadToString(lastUpLinkMsg->payload, s_lastUpLinkPayloadString, SIZE_STATIC_PAYLOAD);
     upLinkJson = createUpLinkJson(lastUpLinkMsg, s_lastUpLinkPayloadString);
 
-    status = NetSendMQTTPacket((void*) upLinkJson, strlen(upLinkJson)+1);
+    status = NetSendMQTTPacket((void*) upLinkJson, strlen(upLinkJson));
     assert(status == SDK_SUCCESS);
 
     FreeJsonString(upLinkJson);
@@ -203,6 +202,11 @@ static void upLinkMsgThreadFunc()
 
 void UpLinkInit(dev_handle devHandle)
 {
+    SDK_STAT status = SDK_SUCCESS;
+
+    status = GetUuidToFilter((uint16_t *) williotUUID);
+    assert(status == SDK_SUCCESS);
+
     s_queueOfUpLinkMsg = OsalQueueCreate(SIZE_OF_UP_LINK_QUEUE);
     assert(s_queueOfUpLinkMsg);
     SDK_STAT sdkStatus = RegisterReceiveCallback(devHandle, bleAdvDataProcessCallback);

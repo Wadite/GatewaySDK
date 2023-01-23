@@ -7,6 +7,9 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#define TURN_ON_AT_CMD_ECHO         "ATE1\r\n"
+#define TURN_OFF_AT_CMD_ECHO        "ATE0\r\n"
+
 typedef enum{
     AT_CMD_TEST,
     AT_CMD_QCCID,
@@ -25,6 +28,10 @@ typedef enum{
     AT_CMD_QHTTPGET,
     AT_CMD_QHTTPPUT,
     AT_CMD_QHTTPREAD,
+    AT_CMD_QSSLOPEN,
+    AT_CMD_QSSLSEND,
+    AT_CMD_QSSLRECV,
+    AT_CMD_QISWTMD,
 
     AT_CMD_NUM
 } eAtCmds;
@@ -40,6 +47,11 @@ typedef union {
     AtQhttpcfg      atQhttpcfg;
     AtQhttpurl      atQhttpurl;
     AtQhttppost     atQhttppost;
+    AtQsslopen      atQsslopen;
+    AtQsslsend      atQsslsend;
+    AtQsslrecv      atQsslrecv;
+    AtQiswtmd       atQiswtmd;
+
 }AtCmndsParams;
 
 /**
