@@ -1,4 +1,4 @@
-
+#include "sdk_common.h"
 #include "cJSON.h"
 
 #define JSON_OBJECT_VERIFY_AND_DELETE_ON_FAIL(itemTocheck,ItemToDelete) do { if(((itemTocheck) == NULL)) \
@@ -18,7 +18,7 @@ cJSON * JsonHeaderCreate();
  * @brief Function to init malloc and free hooks(must be used!)
  * 
  */
-void InitJsonHooks();
+SDK_STAT JsonHooksInit();
 
 /**
  * @brief Function free allocated string

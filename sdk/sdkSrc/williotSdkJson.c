@@ -1,7 +1,8 @@
-#include "williotSdkJson.h"
-#include "osal.h"
 #include <assert.h>
 #include <stdbool.h>
+#include "williotSdkJson.h"
+#include "osal.h"
+#include "sdkConfigurations.h"
 
 
 #define SIZE_OF_JSON_MEMORY_POOL        (8192)
@@ -15,27 +16,36 @@ static bool s_isHooksInitialized = false;
 
 static void* mallocForJson(size_t sz)
 {
-    return OsalMallocFromMemoryPool((uint32_t)sz, &s_jsonMemPool);
+    return OsalMallocFromMemoryPool((uint32_t)sz, s_jsonMemPool);
 }
 
 static void freeForJson(void *ptr)
 {
-    OsalFreeFromMemoryPool(ptr, &s_jsonMemPool);
+    OsalFreeFromMemoryPool(ptr, s_jsonMemPool);
 }
 
-void InitJsonHooks()
+SDK_STAT JsonHooksInit()
 {
     static cJSON_Hooks jsonHooks = {.free_fn = freeForJson,.malloc_fn = mallocForJson};
     cJSON_InitHooks(&jsonHooks);
     s_isHooksInitialized = true;
+
+    return SDK_SUCCESS;
 }
 
 cJSON * JsonHeaderCreate()
 {
+    SDK_STAT status = SDK_SUCCESS;
     assert(s_isHooksInitialized);
+ 
+    const char * gateWayIdStr = NULL;
+    const char * gatewayTypeStr = NULL;
 
-    char * tempGateWayId = "Gateway Id as string";
-    char * tempGatewayType = "Gateway type as string";
+    status = GetGateWayName(&gateWayIdStr);
+    assert(status == SDK_SUCCESS);
+
+    status = GetGateWayType(&gatewayTypeStr);
+    assert(status == SDK_SUCCESS);
 
     cJSON *monitor = cJSON_CreateObject();
     if(!monitor)
@@ -43,11 +53,11 @@ cJSON * JsonHeaderCreate()
         return NULL;
     }
 
-    cJSON *gatewayId = cJSON_CreateString(tempGateWayId);
+    cJSON *gatewayId = cJSON_CreateString(gateWayIdStr);
     JSON_OBJECT_VERIFY_AND_DELETE_ON_FAIL(gatewayId,monitor);
     cJSON_AddItemToObject(monitor, "gatewayId", gatewayId);
 
-    cJSON *gatewayType = cJSON_CreateString(tempGatewayType);
+    cJSON *gatewayType = cJSON_CreateString(gatewayTypeStr);
     JSON_OBJECT_VERIFY_AND_DELETE_ON_FAIL(gatewayType,monitor);
     cJSON_AddItemToObject(monitor, "gatewayType", gatewayType);
 
@@ -68,5 +78,5 @@ cJSON * JsonHeaderCreate()
 
 void FreeJsonString(void* ptr)
 {
-    OsalFreeFromMemoryPool(ptr, &s_jsonMemPool);
+    freeForJson(ptr);
 }

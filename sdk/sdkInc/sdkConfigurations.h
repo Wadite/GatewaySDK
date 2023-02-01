@@ -18,17 +18,19 @@ typedef enum{
     CONF_PARAM_GATEWAY_TYPE,
     CONF_PARAM_GATEWAY_NAME,
     CONF_PARAM_IS_LOCATION_SUPPORTED,
-    CONF_PARAM_LOCATION,
+    CONF_PARAM_LATITUDE,
+    CONF_PARAM_LONGITUDE,
     CONF_PARAM_MQTT_SERVER,
+    CONF_PARAM_API_VERSION,
 
     CONF_PARAM_NUM,
 }eConfigurationParams;
 
-void ConfigurationInit();
+SDK_STAT ConfigurationInit();
 
 SDK_STAT SetConfiguration(const cJSON *item);
 
-bool isConfigurationTableSet();
+SDK_STAT SendConfigurationToServer();
 
 /**
  * @brief Inline functions to get requested param from configurations
@@ -49,8 +51,10 @@ inline SDK_STAT GetGateWayID(const char** gateWayId);
 inline SDK_STAT GetGateWayType(const char** gateWayType);
 inline SDK_STAT GetGateWayName(const char** gateWayName);
 inline SDK_STAT GetIsLocationSupported(bool* isLocationSupported);
-inline SDK_STAT GetLocation(double * location);
+inline SDK_STAT GetLatitude(double * lat);
+inline SDK_STAT GetLongitude(double* lng);
 inline SDK_STAT GetMqttServer(const char ** mqttServer);
+inline SDK_STAT GetApiVersion(const char ** apiVersion);
 
 #include "sdkConfigurationsImplementation.h"
 

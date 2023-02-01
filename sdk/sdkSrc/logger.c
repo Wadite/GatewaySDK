@@ -9,6 +9,16 @@
 #include "network-api.h"
 #include "dev-if.h"
 #include "sdkConfigurations.h"
+#include "sdkUtils.h"
+#include "networkManager.h"
+#include "mqttTopics.h"
+
+#ifndef SIZE_OF_LOG_MEMORY_POOL
+#define SIZE_OF_LOG_MEMORY_POOL         (4096)
+#endif
+#ifndef SIZE_OF_LOG_THREAD
+#define SIZE_OF_LOG_THREAD              (2048)
+#endif
 
 #define SIZE_OF_TIME_AND_TYPE           (28)
 #define SIZE_OF_MAX_LOG_MSG             (512)
@@ -16,8 +26,6 @@
 #define MS_IN_MINUTE					(MS_IN_SECOND * 60)
 #define MS_IN_HOUR						(MS_IN_MINUTE * 60)
 #define MS_IN_DAY						(MS_IN_HOUR * 24)
-#define SIZE_OF_LOG_MEMORY_POOL         (4096)
-#define SIZE_OF_LOG_THREAD              (2048)
 #define LOG_TIMEOUT_TIME_MS             (600000) // 10 minutes
 
 OSAL_CREATE_POOL(s_loggerMemPool, SIZE_OF_LOG_MEMORY_POOL);
@@ -30,19 +38,25 @@ typedef struct{
 
 static void logMsgThreadFunc();
 
+#ifdef DYNAMIC_ALLOCATION_USED
 OSAL_THREAD_CREATE(logMsgThread, logMsgThreadFunc, SIZE_OF_LOG_THREAD, THREAD_PRIORITY_LOW);
+#else
+OSAL_THREAD_CREATE_FROM_POOL(logMsgThread, logMsgThreadFunc, SIZE_OF_LOG_THREAD, THREAD_PRIORITY_LOW, s_loggerMemPool);
+#endif
 
 const char * s_logTypes[] = {
     [LOG_TYPE_DEBUG]	= "Debug",
 	[LOG_TYPE_INFO]		= "Info",
 	[LOG_TYPE_WARNING]	= "Warning",
 	[LOG_TYPE_ERROR]	= "Error",
+    [LOG_TYPE_DEBUG_INTERNAL]	= "Debug_Internal",
 };
 
 static logger_local_handle s_loggerLocalHandle = 0;
 static Queue_t s_queueOfLogMsg = NULL;
 static LogMsg ** s_tableOfLogMsg = NULL;
 static int s_numberOfMaxLogMsg = 0;
+static eLogTypes s_loggerSeverityToSend = LOG_TYPE_DEBUG;
 
 // JSON wrapping, free the string manualy
 static char * createLogJson(uint16_t indexOfLogMsg)
@@ -103,11 +117,11 @@ static inline void freeMsgAndStruct(void* msg, void* strc)
 {
     if(msg)
     {
-        OsalFreeFromMemoryPool(msg, &s_loggerMemPool);
+        OsalFreeFromMemoryPool(msg, s_loggerMemPool);
     }
     if(strc)
     {
-        OsalFreeFromMemoryPool(strc, &s_loggerMemPool);
+        OsalFreeFromMemoryPool(strc, s_loggerMemPool);
     }
 }
 
@@ -132,35 +146,33 @@ static void localLog(LogMsg * logMsg)
 {
     SDK_STAT status;
     int offset = 0;
-    char logBuff[SIZE_OF_TIME_AND_TYPE + SIZE_OF_MAX_LOG_MSG] = {0};
+    static char logBuff[SIZE_OF_TIME_AND_TYPE] = {0};
 
     offset += getTimeStr(logBuff, logMsg->timestamp);
     offset += sprintf((logBuff + offset)," %-7s :",s_logTypes[logMsg->logType]);
-    offset += sprintf((logBuff + offset),"%s", logMsg->message);
 
     status = DevLoggerSend(s_loggerLocalHandle, (void*)logBuff, strlen(logBuff)+1);
+    assert(status == SDK_SUCCESS);
+    
+    status = DevLoggerSend(s_loggerLocalHandle, (void*)logMsg->message, strlen(logMsg->message)+1);
     assert(status == SDK_SUCCESS);
 }
 
 static char * msgArgProcess(const char * message, va_list args)
 {
-    char tempLogMsg[SIZE_OF_MAX_LOG_MSG] = {0};
+    char tempLogMsg = 0;
     char * newMsgPtr = NULL;
     int sizeOfMsg = 0;
 
-    sizeOfMsg = vsnprintf(tempLogMsg, SIZE_OF_MAX_LOG_MSG, message, args);
-    if(sizeOfMsg > SIZE_OF_MAX_LOG_MSG)
-    {
-        tempLogMsg[SIZE_OF_MAX_LOG_MSG - 1] = '\0';
-    }
+    sizeOfMsg = vsnprintf(&tempLogMsg, sizeof(tempLogMsg), message, args);
 
-    newMsgPtr = (char*)OsalMallocFromMemoryPool(sizeOfMsg + 1, &s_loggerMemPool);
+    newMsgPtr = (char*)OsalMallocFromMemoryPool(sizeOfMsg + 1, s_loggerMemPool);
     if(!newMsgPtr)
     {
         return NULL;
     }
 
-    strcpy(newMsgPtr, tempLogMsg);
+    vsnprintf(newMsgPtr, sizeOfMsg, message, args);
 
     return newMsgPtr;
 }
@@ -169,7 +181,7 @@ static LogMsg * buildLogMsgStruct(uint32_t timestamp, eLogTypes logType, char* m
 {
     LogMsg * newLogMsgPtr = NULL;
 
-    newLogMsgPtr = (LogMsg*)OsalMallocFromMemoryPool(sizeof(LogMsg), &s_loggerMemPool);
+    newLogMsgPtr = (LogMsg*)OsalMallocFromMemoryPool(sizeof(LogMsg), s_loggerMemPool);
     if(!newLogMsgPtr)
     {
         return NULL;
@@ -184,18 +196,18 @@ static LogMsg * buildLogMsgStruct(uint32_t timestamp, eLogTypes logType, char* m
 
 static void sendCurrentTable(uint16_t tableIndex)
 {
-    // SDK_STAT status = SDK_SUCCESS;
-    // char * logJSON = NULL;
+    SDK_STAT status = SDK_SUCCESS;
+    char * logJSON = NULL;
 
     if(tableIndex == 0)
     {
         return;
     }
 
-    // logJSON = createLogJson(tableIndex);
-    // status = NetSendMQTTPacket((void*) logJSON, strlen(logJSON)+1);
-    // assert(status == SDK_SUCCESS);
-    // FreeJsonString((void*)logJSON);
+    logJSON = createLogJson(tableIndex);
+    status = NetworkMqttMsgSend(GetMqttStatusTopic(), (void*) logJSON, strlen(logJSON)+1);
+
+    FreeJsonString((void*)logJSON);
 
     for(uint16_t i = 0; i < tableIndex; i++)
     {
@@ -211,17 +223,22 @@ static void logMsgThreadFunc()
 {
     SDK_STAT status = SDK_SUCCESS;
     uint16_t indexOfLogMsg = 0;
-
     while(true)
     {
         status = OsalQueueWaitForObject(s_queueOfLogMsg, 
                                         ((void **)(&(s_tableOfLogMsg[indexOfLogMsg]))), 
-                                        &s_loggerMemPool, LOG_TIMEOUT_TIME_MS);
+                                        s_loggerMemPool, LOG_TIMEOUT_TIME_MS);
         if(status == SDK_SUCCESS)
         {
             indexOfLogMsg++;
 #ifdef DEBUG
-            localLog(s_tableOfLogMsg[indexOfLogMsg - 1]);
+            uint16_t currentIndex = indexOfLogMsg - 1;
+            localLog(s_tableOfLogMsg[currentIndex]);
+            if(LOG_TYPE_DEBUG_INTERNAL == s_tableOfLogMsg[currentIndex]->logType)
+            {
+                freeMsgAndStruct(s_tableOfLogMsg[currentIndex]->message, s_tableOfLogMsg[currentIndex]);
+                indexOfLogMsg--;
+            }
 #endif
         }
 
@@ -233,19 +250,45 @@ static void logMsgThreadFunc()
     }
 }
 
-void LoggerInit()
+SDK_STAT LoggerInit()
 {
     SDK_STAT status = SDK_SUCCESS;
 
     status = GetLoggerNumberOfLogs(&s_numberOfMaxLogMsg);
-    assert(status == SDK_SUCCESS);
+    RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
-    s_tableOfLogMsg = (LogMsg **)OsalMallocFromMemoryPool((s_numberOfMaxLogMsg * sizeof(LogMsg *)), &s_loggerMemPool);
-
+    s_tableOfLogMsg = (LogMsg **)OsalMallocFromMemoryPool((s_numberOfMaxLogMsg * sizeof(LogMsg *)), s_loggerMemPool);
+    if(!s_tableOfLogMsg)
+    {
+        return SDK_FAILURE;
+    }
     s_loggerLocalHandle = DevLoggerInit();
-    assert(s_loggerLocalHandle);
+    if(!s_loggerLocalHandle)
+    {
+        OsalFreeFromMemoryPool(s_tableOfLogMsg, s_loggerMemPool);
+        return SDK_FAILURE;
+    }
+
+    #ifdef DYNAMIC_ALLOCATION_USED
     s_queueOfLogMsg = OsalQueueCreate(s_numberOfMaxLogMsg);
-    assert(s_queueOfLogMsg);
+    #else
+    s_queueOfLogMsg = OsalQueueCreate(s_numberOfMaxLogMsg, s_loggerMemPool);
+    #endif
+    if(!s_queueOfLogMsg)
+    {
+        OsalFreeFromMemoryPool(s_tableOfLogMsg, s_loggerMemPool);
+        return SDK_FAILURE;
+    }
+
+    status = GetLoggerSeverity(&s_loggerSeverityToSend);
+
+    return status;
+  
+}
+
+static bool shouldSendLog(eLogTypes logType)
+{
+    return logType >= s_loggerSeverityToSend;
 }
 
 void LogSend(eLogTypes logType, const char* message, ...)
@@ -257,6 +300,11 @@ void LogSend(eLogTypes logType, const char* message, ...)
     char * newMsgPtr = NULL;
     LogMsg * newLogMsgPtr = NULL;
     SDK_STAT status = SDK_SUCCESS;
+
+    if(!shouldSendLog(logType))
+    {
+        return;
+    }
 
     va_list args;   
     va_start(args, message);
@@ -276,7 +324,7 @@ void LogSend(eLogTypes logType, const char* message, ...)
         return;
     }
     
-    status = OsalQueueEnqueue(s_queueOfLogMsg, newLogMsgPtr, &s_loggerMemPool);
+    status = OsalQueueEnqueue(s_queueOfLogMsg, newLogMsgPtr, s_loggerMemPool);
     if(status != SDK_SUCCESS)
     {
         freeMsgAndStruct(newMsgPtr, newLogMsgPtr);

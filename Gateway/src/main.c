@@ -11,7 +11,6 @@
 #include <assert.h>
 
 #include <zephyr/types.h>
-#include <zephyr/sys/printk.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci.h>
@@ -25,33 +24,37 @@
 #include "downLink.h"
 #include "sdkConfigurations.h"
 #include "mqttTopics.h"
+#include "networkManager.h"
 
 void main(void)
 {
 	dev_handle devHandle;
 	SDK_STAT sdkStatus = 0;
 
-	OsalInit();
+	OsalInit(); // System initialization starts here
 
-	ConfigurationInit();
+	sdkStatus = ConfigurationInit();
+	assert(sdkStatus == SDK_SUCCESS);
 
 	devHandle = DevInit(DEV_BLE);
 	assert(devHandle);
 
-	InitJsonHooks();
-	sdkStatus = NetworkInit();
+	sdkStatus = JsonHooksInit();
 	assert(sdkStatus == SDK_SUCCESS);
 
-	// testing!!!
-	// connectToNetwork();
-	// UpdateAccessToken(NULL);
-	connectToServer();
+	sdkStatus = UpLinkInit(devHandle);
+	assert(sdkStatus == SDK_SUCCESS);
 
-	DownLinkInit(devHandle);
-	UpLinkInit(devHandle);
-	LoggerInit();
-	
-	OsalStart();
+	sdkStatus = LoggerInit();
+	assert(sdkStatus == SDK_SUCCESS);
 
-	OsalSleep(UINT32_MAX );
+	sdkStatus = DownLinkInit(devHandle);
+	assert(sdkStatus == SDK_SUCCESS);
+
+	sdkStatus = NetworkManagerInit();
+	assert(sdkStatus == SDK_SUCCESS);
+	OsalStart(); // System therads released here
+
+
+	OsalSleep(UINT32_MAX);
 }

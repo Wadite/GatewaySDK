@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "downLink.h"
 #include "osal.h"
@@ -8,17 +9,29 @@
 #include "sdkConfigurations.h"
 #include "MQTTPacket.h"
 #include "mqttTopics.h"
+#include "williotSdkJson.h"
+#include "sdkUtils.h"
+
+
+#ifndef SIZE_OF_DOWN_LINK_THREAD
+#define SIZE_OF_DOWN_LINK_THREAD            (2048) 
+#endif
+#ifndef SIZE_OF_DOWN_LINK_MEMORY_POOL
+#define SIZE_OF_DOWN_LINK_MEMORY_POOL       (2048)
+#endif
 
 #define SIZE_OF_DOWN_LINK_QUEUE             (5)
-#define SIZE_OF_DOWN_LINK_THREAD            (2048) 
-#define SIZE_OF_DOWN_LINK_MEMORY_POOL       (2048)
 #define DEFAULT_ADV_DURATION                (100)
-#define DEFAULT_ADV_INTERVAL                (57)
+#define DEFAULT_ADV_INTERVAL                (8)
 #define MQTT_SUCCESS_READ                   (1)
 #define JSON_KEY_DURATION                   "txMaxDurationMs"
 #define JSON_KEY_RETRIES                    "txMaxRetries"
 #define JSON_KEY_PACKET                     "txPacket"
 #define ACTION_KEY                          "action"
+#define API_VERSION_KEY                     "apiVersion"
+#define MAX_DATA_SIZE                       (31)
+#define NUMBER_OF_CHARS_TO_READ             (2)
+#define HEXADECIMAL_BASE                    (16)
 
 #define IS_JSON(jsonPtr)                    (*(jsonPtr) == '{')
 
@@ -33,7 +46,11 @@ static void downLinkMsgThreadFunc();
 static Queue_t s_queueOfDownLinkMsg = NULL;
 static dev_handle s_devHandle = NULL;
 
+#ifdef DYNAMIC_ALLOCATION_USED
 OSAL_THREAD_CREATE(downLinkMsgThread, downLinkMsgThreadFunc, SIZE_OF_DOWN_LINK_THREAD, THREAD_PRIORITY_HIGH);
+#else
+OSAL_THREAD_CREATE_FROM_POOL(downLinkMsgThread, downLinkMsgThreadFunc, SIZE_OF_DOWN_LINK_THREAD, THREAD_PRIORITY_HIGH, s_downLinkMemPool);
+#endif
 
 static void freeDownLinkMsg(DownLinkMsg * downLinkMsgPtr)
 {
@@ -41,9 +58,9 @@ static void freeDownLinkMsg(DownLinkMsg * downLinkMsgPtr)
     {
         if(downLinkMsgPtr->payload)
         {
-            OsalFreeFromMemoryPool(downLinkMsgPtr->payload, &s_downLinkMemPool);
+            OsalFreeFromMemoryPool(downLinkMsgPtr->payload, s_downLinkMemPool);
         }
-        OsalFreeFromMemoryPool(downLinkMsgPtr, &s_downLinkMemPool);
+        OsalFreeFromMemoryPool(downLinkMsgPtr, s_downLinkMemPool);
     }
 }
 
@@ -55,18 +72,18 @@ static void netReceiveMQTTPacketCallback(void * data, uint32_t length)
 
     assert(data && length);
     
-    payload = OsalMallocFromMemoryPool(length, &s_downLinkMemPool);
+    payload = OsalMallocFromMemoryPool(length, s_downLinkMemPool);
     if(!payload)
     {
         return;
     }
     memcpy(payload,data,length);
     
-    newDownLinkMsgPtr = (DownLinkMsg*)OsalMallocFromMemoryPool(sizeof(DownLinkMsg), &s_downLinkMemPool);
+    newDownLinkMsgPtr = (DownLinkMsg*)OsalMallocFromMemoryPool(sizeof(DownLinkMsg), s_downLinkMemPool);
     newDownLinkMsgPtr->payload = payload;
     newDownLinkMsgPtr->sizeOfPayload = length;
 
-    status = OsalQueueEnqueue(s_queueOfDownLinkMsg, newDownLinkMsgPtr, &s_downLinkMemPool);
+    status = OsalQueueEnqueue(s_queueOfDownLinkMsg, newDownLinkMsgPtr, s_downLinkMemPool);
     if(status != SDK_SUCCESS)
     {
         freeDownLinkMsg(newDownLinkMsgPtr);
@@ -92,18 +109,23 @@ static void advJson(cJSON * advJson)
     {
         uint32_t retries = (uint32_t)cJSON_GetNumberValue(jsonNode); 
         advInterval = advDuration / retries;
-
-        if(advInterval < DEFAULT_ADV_INTERVAL)
-        {
-            advInterval = DEFAULT_ADV_INTERVAL;
-        }
     }
 
     jsonNode = cJSON_GetObjectItem(advJson, JSON_KEY_PACKET);
     if(jsonNode)
     {
         advData = cJSON_GetStringValue(jsonNode);
-        status = DevSendPacket(s_devHandle, advDuration, advInterval, advData, strlen(advData));
+        uint8_t rawData[MAX_DATA_SIZE] = {0};
+        char strToConv[NUMBER_OF_CHARS_TO_READ + 1] = {0};
+        int sizeOfStr = (strlen(advData));
+
+        for(int i = 0; i < sizeOfStr; i += NUMBER_OF_CHARS_TO_READ)
+        {
+            memcpy(strToConv, advData + i, NUMBER_OF_CHARS_TO_READ);
+            rawData[i/NUMBER_OF_CHARS_TO_READ] = (uint8_t)strtol(strToConv, NULL, HEXADECIMAL_BASE);
+        }
+
+        status = DevSendPacket(s_devHandle, advDuration, advInterval, rawData, MAX_DATA_SIZE);
         assert(status == SDK_SUCCESS);
     }
 }
@@ -116,12 +138,27 @@ static void createDownlinkJson(const char* ptr)
     cJSON * actionJson = cJSON_GetObjectItem(downLinkJson, ACTION_KEY);
     if(actionJson)
     {
+
+#ifdef DEBUG
+        char * debugString = cJSON_Print(downLinkJson);
+        assert(debugString);
+        LOG_DEBUG_INTERNAL("\nDownlink message : \n%s\n",debugString);
+        FreeJsonString(debugString);
+#endif
+
         advJson(downLinkJson);
+        cJSON_Delete(downLinkJson);
+        return;
     }
-    else
+
+    cJSON * apiVersionJson = cJSON_GetObjectItem(downLinkJson, API_VERSION_KEY);
+    if(apiVersionJson)
     {
         status = SetConfiguration(downLinkJson);
         assert(status == SDK_SUCCESS);
+        cJSON_Delete(downLinkJson);
+        OsalSystemReset();
+        return;
     }
 
     cJSON_Delete(downLinkJson);
@@ -143,7 +180,7 @@ static char* mqttPackageRead(unsigned char* buf,int buflen)
 
     if(err != MQTT_SUCCESS_READ)
     {
-        OsalFreeFromMemoryPool(payload, &s_downLinkMemPool);
+        OsalFreeFromMemoryPool(payload, s_downLinkMemPool);
         return NULL;
     }
 
@@ -173,23 +210,29 @@ static void downLinkMsgThreadFunc()
     {
         status = OsalQueueWaitForObject(s_queueOfDownLinkMsg, 
                                         ((void **)(&(rawDownLinkMsg))),
-                                        &s_downLinkMemPool, OSAL_FOREVER_TIMEOUT);
+                                        s_downLinkMemPool, OSAL_FOREVER_TIMEOUT);
         assert(status == SDK_SUCCESS);
 
         downLinkProcess(rawDownLinkMsg);
     }
 }
 
-void DownLinkInit(dev_handle dev)
+SDK_STAT DownLinkInit(dev_handle dev)
 {
     SDK_STAT status = SDK_SUCCESS;
-
+    #ifdef DYNAMIC_ALLOCATION_USED
     s_queueOfDownLinkMsg = OsalQueueCreate(SIZE_OF_DOWN_LINK_QUEUE);
-    assert(s_queueOfDownLinkMsg);
-    status = RegisterNetReceiveMQTTPacketCallback(netReceiveMQTTPacketCallback);
-    assert(status == SDK_SUCCESS);
-    s_devHandle = dev;
+    #else
+    s_queueOfDownLinkMsg = OsalQueueCreate(SIZE_OF_DOWN_LINK_QUEUE, s_downLinkMemPool);
+    #endif
+    if(!s_queueOfDownLinkMsg)
+    {
+        return SDK_FAILURE;
+    }
 
-    status = SubscribeToTopic((char*)GetMqttDownlinkTopic());
-    assert(status == SDK_SUCCESS);
+    status = RegisterNetReceiveMQTTPacketCallback(netReceiveMQTTPacketCallback);
+    RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+    s_devHandle = dev;
+    
+    return status;
 }
