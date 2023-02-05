@@ -14,9 +14,9 @@ typedef enum{
     CONF_PARAM_LOGGER_LOCAL_TRACE,
     CONF_PARAM_LOGGER_NUMBER_OF_LOGS,
     CONF_PARAM_UUID_TO_FILTER,
-    CONF_PARAM_GATEWAY_ID,
+    CONF_PARAM_ACCOUNT_ID,
     CONF_PARAM_GATEWAY_TYPE,
-    CONF_PARAM_GATEWAY_NAME,
+    CONF_PARAM_GATEWAY_ID,
     CONF_PARAM_IS_LOCATION_SUPPORTED,
     CONF_PARAM_LATITUDE,
     CONF_PARAM_LONGITUDE,
@@ -26,11 +26,40 @@ typedef enum{
     CONF_PARAM_NUM,
 }eConfigurationParams;
 
+/**
+ * @brief Initialize the global configuration table, by reading
+ *        key values from storage, or by using default values.
+ * 
+ * @return SDK_SUCCESS if all configurations was initialized successfully 
+ */
 SDK_STAT ConfigurationInit();
 
+/**
+ * @brief Set new value to requested key in configuration table.
+ * 
+ * @param item pointer to cJson object that has the reqeusted key value pair.
+ * 
+ * @return SDK_INVALID_PARAMS if null pointer was passed
+ * @return SDK_INVALID_STATE if configuration table has not been set.
+ * @return SDK_SUCCESS if changed successfully 
+ */
 SDK_STAT SetConfiguration(const cJSON *item);
 
+/**
+ * @brief Send the Configuratin table as string to server
+ * 
+ * @return SDK_SUCCESS if sent successfully 
+ */
 SDK_STAT SendConfigurationToServer();
+
+/**
+ * @brief key name of the configuration parameter.
+ * 
+ * @param confParm the enum of requested key.
+ * 
+ * @return NULL if bad param was passed, otherwise string of the key name
+ */
+const char * GetConfigurationKeyName(eConfigurationParams confParm);
 
 /**
  * @brief Inline functions to get requested param from configurations
@@ -47,9 +76,9 @@ inline SDK_STAT GetLoggerSeverity(eLogTypes * loggerSeverityPtr);
 inline SDK_STAT GetLoggerLocalTraceConfig(bool * loggerLocalTraceConfig);
 inline SDK_STAT GetLoggerNumberOfLogs(int * loggerNumberOfLogs);
 inline SDK_STAT GetUuidToFilter(uint16_t * uuidToFilter);
-inline SDK_STAT GetGateWayID(const char** gateWayId);
-inline SDK_STAT GetGateWayType(const char** gateWayType);
-inline SDK_STAT GetGateWayName(const char** gateWayName);
+inline SDK_STAT GetAccountID(const char** accountId);
+inline SDK_STAT GetGatewayType(const char** gatewayType);
+inline SDK_STAT GetGatewayId(const char** gatewayId);
 inline SDK_STAT GetIsLocationSupported(bool* isLocationSupported);
 inline SDK_STAT GetLatitude(double * lat);
 inline SDK_STAT GetLongitude(double* lng);

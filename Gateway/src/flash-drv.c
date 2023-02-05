@@ -26,7 +26,7 @@ SDK_STAT FlashInit()
 
 SDK_STAT FlashRead(eFlashPage flashPage, void * savePageAdd)
 {
-    if(!savePageAdd && (flashPage < FLASH_PAGE_NUM))
+    if(!savePageAdd || (flashPage >= FLASH_PAGE_NUM)) // recheck this maybe error
     {
         return SDK_INVALID_PARAMS;
     }
@@ -42,7 +42,7 @@ SDK_STAT FlashRead(eFlashPage flashPage, void * savePageAdd)
 
 SDK_STAT FlashWrite(eFlashPage flashPage, const void * loadStrAdd, size_t sizeOfLoadStr)
 {
-    if(!loadStrAdd && (flashPage < FLASH_PAGE_NUM))
+    if(!loadStrAdd || (flashPage >= FLASH_PAGE_NUM)) // recheck this maybe error
     {
         return SDK_INVALID_PARAMS;
     }

@@ -95,8 +95,16 @@ SDK_STAT AtWriteCmd(const eAtCmds atCmd, const AtCmndsParams * cmndParams);
  */
 SDK_STAT AtExecuteCmd(const eAtCmds atCmd);
 
-// add description please
-
+/**
+ * @brief Convert enum to modem response string.
+ * 
+ * @param atCmd enum of requested command
+ * @param responseBuffer pointer to buffer to save the response string.
+ * @param bufferSize size of buffer.
+ * 
+ * @return SDK_INVALID_PARAMS if null ptr or at command doesnt exist or buffer size is to short.
+ * @return SDK_SUCCESS if response built successfully.
+ */
 SDK_STAT atEnumToResponseString(eAtCmds atCmd, char * responseBuffer, uint16_t bufferSize);
 
 #endif //_AT_COMMANDS_H
