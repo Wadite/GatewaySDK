@@ -3,6 +3,6 @@
 
 #include "dev-if.h"
 
-void DownLinkInit(dev_handle dev);
+SDK_STAT DownLinkInit(dev_handle dev);
 
 #endif //_DOWN_LINK_H

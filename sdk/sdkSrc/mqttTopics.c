@@ -8,7 +8,7 @@
 
 #define MQTT_UPLINK_PREFIX					"data-test/"
 #define MQTT_DOWNLINK_PREFIX				"update-test/"
-#define MQTT_STATUS_PREFIX					"status-prod/"
+#define MQTT_STATUS_PREFIX					"status-test/"
 #define SIZE_OF_MQTT_TOPIC					(128)
 
 

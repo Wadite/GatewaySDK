@@ -7,6 +7,11 @@
 /**
 @brief this h file is for defines that are used through the osal 
     dynamic allocation is used add a define DYNAMIC_ALLOCATION_USED in this file
+    defines for size of threads and memory pool that the sdk uses. if not defined default values will be used
+    downlink: SIZE_OF_DOWN_LINK_MEMORY_POOL, SIZE_OF_DOWN_LINK_THREAD, 
+    logger: SIZE_OF_LOG_MEMORY_POOL, SIZE_OF_LOG_THREAD, 
+    configurations: SIZE_OF_CONFIGURATIONS_MEMORY_POOL
+    uplink: SIZE_OF_UP_LINK_MEMORY_POOL, SIZE_OF_UP_LINK_THREAD   
  */
 #include "osal/osal_impl.h"
 
@@ -22,6 +27,14 @@ typedef void* MemoryPool_t;
 typedef void* DataItem_t;
 typedef void (*TimerFunc)(void* arg);
 typedef void (*ThreadFunc)(void* arg);
+
+typedef enum {
+    THREAD_PRIORITY_LOW,
+    THREAD_PRIORITY_MEDIUM,
+    THREAD_PRIORITY_HIGH,
+
+    THREAD_PRIORITY_NUM
+} ThreadPriority;
 
 /**
  * @brief Init any property that the OS should need.
@@ -159,9 +172,9 @@ SDK_STAT OsalTimerStop(Timer_t timer);
  */
 #ifdef DYNAMIC_ALLOCATION_USED
 #define OSAL_THREAD_CREATE(name, func, stackSize, priority) USER_THREAD_CREATE(name, func, stackSize, priority)
-#else
-#define OSAL_THREAD_CREATE(name, func, stackSize, priority, pool) USER_THREAD_CREATE(name, func, stackSize, priority, pool)
 #endif
+#define OSAL_THREAD_CREATE_FROM_POOL(name, func, stackSize, priority, pool) USER_THREAD_CREATE(name, func, stackSize, priority, pool)
+
 /**
  * @brief sleeps given time
  * 
@@ -225,6 +238,11 @@ void OsalFreeFromMemoryPool(void* ptr, MemoryPool_t pool);
  * FreeRTOS - kernelStart
  */
 void OsalStart();
+
+/**
+ * @brief Resets the system.
+ */
+void OsalSystemReset();
 
 /**
  * @brief Create A Memory pool that is used for the non dynamic Creation

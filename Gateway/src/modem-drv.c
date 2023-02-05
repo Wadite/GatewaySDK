@@ -1,6 +1,5 @@
 #include "modem-drv.h"
-// #include "util.h"
-// #include "tg_assert.h"
+#include "osal.h"
 
 #include <zephyr/zephyr.h>
 #include <assert.h>
@@ -9,6 +8,8 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/drivers/gpio.h>
+
+#include "logger.h"
 
 #define PIN_CATM_EN                                         (25)
 #define PIN_PWRKET_MCU                                      (26)
@@ -115,7 +116,7 @@ static void uartRead(void* p1, void* p2, void* p3)
     
     int msgSize = 0;
     int result = 0;
-    printk("uartRead thread running\n");
+    LOG_DEBUG_INTERNAL("uartRead thread running\n");
     
     while (true) {
         result = k_msgq_get(&s_uartRxMsgq, &(s_msgBuf[msgSize]), K_FOREVER);
@@ -143,7 +144,7 @@ static void uartRead(void* p1, void* p2, void* p3)
         // Msg too long
         else if(IS_MSG_TOO_LONG(msgSize)) 
         {
-            printk("Malformed s_uartDev message: too large\n");
+            LOG_DEBUG_INTERNAL("Malformed s_uartDev message: too large\n");
             msgSize = 0;
         }
     }
@@ -209,7 +210,7 @@ SDK_STAT ModemInit(ReadModemDataCB cb)
     k_msgq_init(&s_uartRxMsgq, s_uartRxMsgqBuf, 1, UART_RX_MSGQ_SIZE);
     
     k_thread_create(&s_uartReadThread, s_uartReadThreadStack, K_KERNEL_STACK_SIZEOF(s_uartReadThreadStack),
-                    uartRead, NULL, NULL, NULL, K_LOWEST_APPLICATION_THREAD_PRIO, 0, K_NO_WAIT);
+                    uartRead, NULL, NULL, NULL, CONVERTED_PRIORITY(THREAD_PRIORITY_HIGH), 0, K_NO_WAIT);
 
     uart_irq_callback_user_data_set(s_uartDev, modemUartIsr, NULL);
     uart_irq_rx_enable(s_uartDev);

@@ -321,7 +321,6 @@ void OsalFreeFromMemoryPool(void* ptr, MemoryPool_t pool)
     {
         return;
     }
-    // printk("freeing %p from %p \n", ptr, pool);
     k_heap_free((struct k_heap *)pool, ptr);
 }
 
@@ -333,4 +332,9 @@ void OsalInit()
 void OsalStart()
 {
     k_event_post(&s_wakeThreadsEvent, THREADS_EVENT_BITS);
+}
+
+void OsalSystemReset()
+{
+    NVIC_SystemReset();    
 }

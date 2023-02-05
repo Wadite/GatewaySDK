@@ -1,8 +1,6 @@
 #ifndef _SDK_COMMON_H
 #define _SDK_COMMON_H
 
-#define MAX_ADV_DATA_SIZE   29
-
 typedef enum {
     SDK_SUCCESS = 0,
     SDK_FAILURE,

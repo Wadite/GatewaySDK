@@ -1,6 +1,9 @@
 #include "dev-if.h"
 #include "williotSdkJson.h"
 #include "cJSON.h"
+#include "logger.h"
+#include "flash-drv.h"
+#include "sdkUtils.h"
 
 #include <zephyr/types.h>
 #include <stddef.h>
@@ -12,6 +15,7 @@
 #include <zephyr/drivers/flash.h>
 #include <zephyr/storage/flash_map.h>
 
+#define MAX_ADV_DATA_SIZE                   (29)
 #define INTERNAL_DEV_ID                     (1)
 #define SCAN_INTERVAL                       (0x0010)
 #define SCAN_WINDOWN                        (0x0010)
@@ -21,10 +25,12 @@
 #define INITAL_COUNT                        (0)
 #define COUNT_LIMIT                         (1)
 #define TEN_PRECENT_OF(val)                 ((val)/10)
-#define SIZE_OF_FLASH_PAGE                  (4096)
-#define SIZE_OF_WORD                        (4)
 #define FLASH_BEGIN                         (0)
 #define FIRST_JSON_CHAR_INDEX               (0)
+#define MIN_ADV_INTERVAL                    (57)
+#define MIN_ADV_DURATION                    (1000)
+#define SIZE_OF_TYPE_AND_LENGTH             (2)
+#define ADV_TYPE_OFFSET                     (1)
 
 #define IS_JSON_NOT_IN_FLASH(flashPage)                 ((flashPage)[FIRST_JSON_CHAR_INDEX] != '{')
 #define GET_SIZE_FOR_ALIGNMENT(jsonStringSize)          ((SIZE_OF_WORD - ((jsonStringSize) + 1) % SIZE_OF_WORD))
@@ -40,7 +46,6 @@ static bool s_isAdvertising = false;
 static struct bt_le_adv_param s_advParams = {0};
 static Timer_t s_advTimer = 0;
 DevHandlePacketCB s_receivedPacketFuncHandle = 0;
-const static struct flash_area * s_storageArea = NULL;
 
 void advTimerCallback()
 {
@@ -94,14 +99,14 @@ dev_handle DevInit(DEV_ID id)
 	err = bt_enable(NULL);
 	if (err) 
     {
-		printk("Bluetooth init failed (err %d)\n", err);
+		LOG_DEBUG_INTERNAL("Bluetooth init failed (err %d)\n", err);
 		return NULL;
 	}
 
 	err = bt_le_scan_start(&scan_param, scanCb);
 	if (err) 
     {
-		printk("Starting scanning failed (err %d)\n", err);
+		LOG_DEBUG_INTERNAL("Starting scanning failed (err %d)\n", err);
 		return NULL;
 	}
 
@@ -116,21 +121,27 @@ SDK_STAT DevSendPacket(dev_handle dev, uint32_t duration,
 {
     SDK_STAT sdkStatus = 0;
     int err = 0;
-    const struct bt_data advBtData[] = {{BT_DATA_LE_SC_RANDOM_VALUE,  length, (uint8_t*)data}};
+    const struct bt_data advBtData[] = {{*((uint8_t*)(data) + ADV_TYPE_OFFSET),  
+                                            (length - SIZE_OF_TYPE_AND_LENGTH), 
+                                            ((uint8_t*)(data) + SIZE_OF_TYPE_AND_LENGTH)}};
 
-    if(!dev || !duration || !interval || !data || !length || length > MAX_ADV_DATA_SIZE)
+    if(!dev || !duration || !interval || !data || !length || length > (MAX_ADV_DATA_SIZE + SIZE_OF_TYPE_AND_LENGTH))
     {
         return SDK_INVALID_PARAMS;
     }
 
-    s_advParams.options = BT_LE_ADV_OPT_USE_NAME;
+    // Current hardware support minimum interval of 57, duration 1 sec to increase probability
+    interval = MIN_ADV_INTERVAL;
+    duration = MIN_ADV_DURATION;
+
+    s_advParams.options = BT_LE_ADV_OPT_NONE;
     s_advParams.interval_max = ADV_INTERVAL_MAX(interval+TEN_PRECENT_OF(interval));
     s_advParams.interval_min = ADV_INTERVAL_MIN(interval-TEN_PRECENT_OF(interval));
 
     err = bt_le_adv_start(&s_advParams, advBtData, ARRAY_SIZE(advBtData), NULL, 0);
     if (err) 
     {
-        printk("Advertising failed to start (err %d)\n", err);
+        LOG_DEBUG_INTERNAL("Advertising failed to start (err %d)\n", err);
         return SDK_FAILURE;
     }
 
@@ -139,7 +150,7 @@ SDK_STAT DevSendPacket(dev_handle dev, uint32_t duration,
     sdkStatus = OsalTimerStart(s_advTimer, duration);
     if(sdkStatus != SDK_SUCCESS)
     {
-        printk("Advertising timer failed to start\n");
+        LOG_DEBUG_INTERNAL("Advertising timer failed to start\n");
         err = bt_le_adv_stop();
         __ASSERT((err == 0),"Advertising failed to stop");
         return SDK_FAILURE;
@@ -183,14 +194,12 @@ SDK_STAT DevLoggerSend(logger_local_handle interface_handle, void* data, uint32_
 
 SDK_STAT DevStorageInit()
 {
-    int err = flash_area_open(FLASH_AREA_ID(storage), &s_storageArea);
-
-    return (err ? SDK_FAILURE : SDK_SUCCESS);
+    return FlashInit();
 }
 
 SDK_STAT DevStorageRead(const char * key , void * value, size_t sizeOfValue)
 {
-    int err = 0;
+    SDK_STAT status = SDK_SUCCESS;
     cJSON * flashJson = NULL;
     cJSON * paramJson = NULL;
     uint8_t* pageFromFlash = NULL;
@@ -208,11 +217,11 @@ SDK_STAT DevStorageRead(const char * key , void * value, size_t sizeOfValue)
         return SDK_FAILURE;
     }
 
-    err = flash_area_read(s_storageArea, FLASH_BEGIN, pageFromFlash, SIZE_OF_FLASH_PAGE);
-    if(err)
+    status = FlashRead(FLASH_PAGE_CONFIGURATION, pageFromFlash);
+    if(status != SDK_SUCCESS)
     {
         OsalFree(pageFromFlash);
-        return SDK_FAILURE;
+        return status;
     }
 
     if(IS_JSON_NOT_IN_FLASH(pageFromFlash))
@@ -287,15 +296,11 @@ static SDK_STAT jsonToStringZeroPadded(cJSON * root, char ** jsonString, size_t 
 static SDK_STAT createNewJsonFlash(const char * key, void * buff, size_t sizeOfBuff)
 {
     SDK_STAT status = SDK_SUCCESS;
-    int ans = 0;
     char * jsonString = NULL;
     size_t sizeOfAllocatedString = 0;
-    
-    ans = flash_area_erase(s_storageArea, FLASH_BEGIN, SIZE_OF_FLASH_PAGE);
-    if(ans)
-    {
-        return SDK_FAILURE;
-    }
+
+    status = FlashErase(FLASH_PAGE_CONFIGURATION);
+    RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
     cJSON *root = cJSON_CreateObject();
 
@@ -307,24 +312,17 @@ static SDK_STAT createNewJsonFlash(const char * key, void * buff, size_t sizeOfB
     }
 
     status = jsonToStringZeroPadded(root, &jsonString, &sizeOfAllocatedString);
-    if(status != SDK_SUCCESS)
-    {
-        return status;
-    }
+    RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
-    ans = flash_area_write(s_storageArea, FLASH_BEGIN, jsonString, sizeOfAllocatedString); 
+    status = FlashWrite(FLASH_PAGE_CONFIGURATION, (const void *)jsonString, sizeOfAllocatedString);
     OsalFree(jsonString);
-    if(ans)
-    {
-        return SDK_FAILURE;
-    }
+    RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
     return SDK_SUCCESS;
 }
 
 SDK_STAT DevStorageWrite(const char * key, void * value, size_t sizeOfValue)
 {
-    int err = 0;
     cJSON * flashJson = NULL;
     uint8_t* pageFromFlash = NULL;
     SDK_STAT status = SDK_SUCCESS;
@@ -342,11 +340,11 @@ SDK_STAT DevStorageWrite(const char * key, void * value, size_t sizeOfValue)
         return SDK_FAILURE;
     }
 
-    err = flash_area_read(s_storageArea, FLASH_BEGIN, pageFromFlash, SIZE_OF_FLASH_PAGE);
-    if(err)
+    status = FlashRead(FLASH_PAGE_CONFIGURATION, pageFromFlash);
+    if(status != SDK_SUCCESS)
     {
         OsalFree(pageFromFlash);
-        return SDK_FAILURE;
+        return status;
     }
 
     if(IS_JSON_NOT_IN_FLASH(pageFromFlash))
@@ -383,19 +381,16 @@ SDK_STAT DevStorageWrite(const char * key, void * value, size_t sizeOfValue)
         return SDK_FAILURE;
     }
 
-    int ans = flash_area_erase(s_storageArea, FLASH_BEGIN, SIZE_OF_FLASH_PAGE);
-    if(ans)
+    status = FlashErase(FLASH_PAGE_CONFIGURATION);
+    if(status != SDK_SUCCESS)
     {
         OsalFree(jsonString);
-        return SDK_FAILURE;
+        return status;
     }
 
-    ans = flash_area_write(s_storageArea, FLASH_BEGIN, jsonString, sizeOfAllocatedString); 
+    status = FlashWrite(FLASH_PAGE_CONFIGURATION, (const void *)jsonString, sizeOfAllocatedString);
     OsalFree(jsonString);
-    if(ans)
-    {
-        return SDK_FAILURE;
-    }
+    RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
     return SDK_SUCCESS;
 }

@@ -3,6 +3,6 @@
 
 #include "dev-if.h"
 
-void UpLinkInit(dev_handle devHandle);
+SDK_STAT UpLinkInit(dev_handle devHandle);
 
 #endif //_UP_LINK_H

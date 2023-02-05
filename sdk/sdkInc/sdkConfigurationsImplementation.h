@@ -17,9 +17,13 @@ typedef struct{
     char *      gateWayType;
     char *      gateWayName;
     bool        isLocationSupported;
-    double      location;
+    double      latitude;
+    double      longitude;
     char *      mqttServer;
+    char *      apiVersion;
 }ConfigurationStruct;
+
+bool isConfigurationTableSet();
 
 inline SDK_STAT GetLoggerUploadMode(const char** loggerUploadModePtr)
 {   
@@ -227,7 +231,7 @@ inline SDK_STAT GetIsLocationSupported(bool* isLocationSupported)
     return SDK_SUCCESS;
 }
 
-inline SDK_STAT GetLocation(double * location)
+inline SDK_STAT GetLatitude(double * lat)
 {   
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
@@ -237,17 +241,41 @@ inline SDK_STAT GetLocation(double * location)
         return SDK_INVALID_STATE;
     }
 
-    if(!location)
+    if(!lat)
     {
         return SDK_INVALID_PARAMS;
     }
 
-    if(confStructPtr->location < 0)
+    if(confStructPtr->latitude < 0)
     {
         return SDK_FAILURE;
     }
     
-    *location = confStructPtr->location;
+    *lat = confStructPtr->latitude;
+    return SDK_SUCCESS;
+}
+
+inline SDK_STAT GetLongitude(double* lng)
+{
+    extern ConfigurationStruct g_ConfigurationStruct;
+    const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
+
+    if(!isConfigurationTableSet())
+    {
+        return SDK_INVALID_STATE;
+    }
+
+    if(!lng)
+    {
+        return SDK_INVALID_PARAMS;
+    }
+
+    if(confStructPtr->longitude < 0)
+    {
+        return SDK_FAILURE;
+    }
+    
+    *lng = confStructPtr->longitude;
     return SDK_SUCCESS;
 }
 
@@ -274,5 +302,30 @@ inline SDK_STAT GetMqttServer(const char ** mqttServer)
     *mqttServer = confStructPtr->mqttServer;
     return SDK_SUCCESS;
 }
+
+inline SDK_STAT GetApiVersion(const char ** apiVersion)
+{
+    extern ConfigurationStruct g_ConfigurationStruct;
+    const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
+
+    if(!isConfigurationTableSet())
+    {
+        return SDK_INVALID_STATE;
+    }
+    
+    if(!apiVersion)
+    {
+        return SDK_INVALID_PARAMS;
+    }
+
+    if(!confStructPtr->apiVersion)
+    {
+        return SDK_FAILURE;
+    }
+    
+    *apiVersion = confStructPtr->apiVersion;
+    return SDK_SUCCESS;
+}
+
 
 #endif //_CONFIGURATION_MODULE_IMPLEMENTATION_H_

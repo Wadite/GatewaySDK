@@ -5,11 +5,25 @@
 #include "sdkConfigurations.h"
 #include "osal.h"
 #include "dev-if.h"
+#include "williotSdkJson.h"
+#include "networkManager.h"
+#include "mqttTopics.h"
+#include "sdkUtils.h"
+#include "serviceDiscovery.h"
+
+#define DECIMAL_BASE                    (10)
+#define HEXADECIMAL_BASE                (16)
+
+
+#ifndef SIZE_OF_CONFIGURATIONS_MEMORY_POOL
+#define SIZE_OF_CONFIGURATIONS_MEMORY_POOL     (4096)
+#endif
 
 #define MAX_UINT16_HEX_DIGITS           (8)
 #define MAX_INT_DIGITS                  (16)
 #define MAX_DOUBLE_DIGITS               (32)
 #define MAX_CONF_PARAM_SIZE             (16)
+
 
 #define CONFIG_STRING_DEBUG             "debug"
 #define CONFIG_STRING_INFO              "info"
@@ -24,11 +38,14 @@
 #define DEFAULT_CONF_NUMBER_OF_LOGS     "5"
 #define DEFAULT_CONF_UUID               "0xfdaf"
 #define DEFAULT_CONF_GATEWAY_ID         "102115004740"
-#define DEFAULT_CONF_GATEWAY_TYPE       "none"
-#define DEFAULT_CONF_GATEWAY_NAME       "tandemGW"
+#define DEFAULT_CONF_GATEWAY_TYPE       "other"
+#define DEFAULT_CONF_GATEWAY_NAME       "GWtandem"
 #define DEFAULT_CONF_LOCATION_SUPPORT   CONFIG_STRING_TRUE
 #define DEFAULT_CONF_LOCATION           "0.0"
 #define DEFAULT_CONF_MQTT_SERVER        "mqtt-shared-v2-dev.aws.wiliot.com"
+#define DEFAULT_API_VERSION             "200"
+
+#define CONFIG_PARAM_JSON_STRING        "gatewayConf"
 
 static void setLoggerUploadMode(const cJSON *cJson);
 static void setLoggerSeverity(const cJSON *cJson);
@@ -39,8 +56,10 @@ static void setGateWayID(const cJSON *cJson);
 static void setGateWayType(const cJSON *cJson);
 static void setGateWayName(const cJSON *cJson);
 static void setIsLocationSupported(const cJSON *cJson);
-static void setLocation(const cJSON *cJson);
+static void setLatitude(const cJSON *cJson);
+static void setLongitude(const cJSON *cJson);
 static void setMqttServer(const cJSON *cJson);
+static void setApiVersion(const cJSON *cJson);
 
 typedef void(*SetFunction)(const cJSON*);
 
@@ -50,12 +69,14 @@ static const char * s_confParamsTable[CONF_PARAM_NUM] = {
 	[CONF_PARAM_LOGGER_LOCAL_TRACE]         = "LoggerLocalTrace",
 	[CONF_PARAM_LOGGER_NUMBER_OF_LOGS]      = "LoggerNumberOfLogs",
     [CONF_PARAM_UUID_TO_FILTER]             = "UUID",
-    [CONF_PARAM_GATEWAY_ID]                 = "GateWayID",
-	[CONF_PARAM_GATEWAY_TYPE]               = "GateWayType",
+    [CONF_PARAM_GATEWAY_ID]                 = "gatewayID",
+	[CONF_PARAM_GATEWAY_TYPE]               = "gatewayType",
 	[CONF_PARAM_GATEWAY_NAME]               = "GateWayName",
     [CONF_PARAM_IS_LOCATION_SUPPORTED]      = "LocationSupported",
-    [CONF_PARAM_LOCATION]                   = "Location",
-    [CONF_PARAM_MQTT_SERVER]                = "MqttServer"
+    [CONF_PARAM_LATITUDE]                   = "lat",
+    [CONF_PARAM_LONGITUDE]                  = "lng",
+    [CONF_PARAM_MQTT_SERVER]                = "MqttServer",
+    [CONF_PARAM_API_VERSION]                = "apiVersion",
 };
 
 static SetFunction s_setParamsFuncPtrTable[CONF_PARAM_NUM] = {
@@ -68,8 +89,10 @@ static SetFunction s_setParamsFuncPtrTable[CONF_PARAM_NUM] = {
 	[CONF_PARAM_GATEWAY_TYPE]               = setGateWayType,
 	[CONF_PARAM_GATEWAY_NAME]               = setGateWayName,
     [CONF_PARAM_IS_LOCATION_SUPPORTED]      = setIsLocationSupported,
-    [CONF_PARAM_LOCATION]                   = setLocation,
+    [CONF_PARAM_LATITUDE]                   = setLatitude,
+    [CONF_PARAM_LONGITUDE]                  = setLongitude,
     [CONF_PARAM_MQTT_SERVER]                = setMqttServer,
+    [CONF_PARAM_API_VERSION]                = setApiVersion,
 };
 
 static const char * s_defaultParamsValue[CONF_PARAM_NUM] = {
@@ -82,14 +105,18 @@ static const char * s_defaultParamsValue[CONF_PARAM_NUM] = {
 	[CONF_PARAM_GATEWAY_TYPE]               = DEFAULT_CONF_GATEWAY_TYPE,
 	[CONF_PARAM_GATEWAY_NAME]               = DEFAULT_CONF_GATEWAY_NAME,
     [CONF_PARAM_IS_LOCATION_SUPPORTED]      = DEFAULT_CONF_LOCATION_SUPPORT,
-    [CONF_PARAM_LOCATION]                   = DEFAULT_CONF_LOCATION,
+    [CONF_PARAM_LATITUDE]                   = DEFAULT_CONF_LOCATION,
+    [CONF_PARAM_LONGITUDE]                  = DEFAULT_CONF_LOCATION,
     [CONF_PARAM_MQTT_SERVER]                = DEFAULT_CONF_MQTT_SERVER,
+    [CONF_PARAM_API_VERSION]                = DEFAULT_API_VERSION,
 };
 
 // This parameter is global because it is used in header implementation file 
 ConfigurationStruct g_ConfigurationStruct = {0};
 
 static bool s_isConfigurationTableSet = false;
+
+OSAL_CREATE_POOL(s_configurationsMemoryPool, SIZE_OF_CONFIGURATIONS_MEMORY_POOL);
 
 static int stringToInt(char * intStr)
 {
@@ -151,6 +178,27 @@ static double stringToDouble(char * doubleStr)
     return res;
 }
 
+static char * severityToString(eLogTypes loggerSeverity)
+{
+    switch(loggerSeverity)
+    {
+        case LOG_TYPE_DEBUG:
+            return CONFIG_STRING_DEBUG;
+    
+        case LOG_TYPE_INFO:
+            return CONFIG_STRING_INFO;
+
+        case LOG_TYPE_WARNING:
+            return CONFIG_STRING_WARNING;
+        
+        case LOG_TYPE_ERROR:
+            return CONFIG_STRING_ERROR;
+
+        default:
+            return NULL;
+    }
+}
+
 static bool setBoolConfigFlashSave(const char * key,char * boolStr)
 {
     SDK_STAT status = SDK_SUCCESS;
@@ -170,10 +218,10 @@ static void setLoggerUploadMode(const cJSON *cJson)
 
     if(g_ConfigurationStruct.loggerUploadMode != NULL)
     {
-        OsalFree(g_ConfigurationStruct.loggerUploadMode);
+        OsalFreeFromMemoryPool(g_ConfigurationStruct.loggerUploadMode, s_configurationsMemoryPool);
     }
 
-    g_ConfigurationStruct.loggerUploadMode = OsalMalloc(strlen(tempLoggerUploadMode) + 1);
+    g_ConfigurationStruct.loggerUploadMode = OsalMallocFromMemoryPool(strlen(tempLoggerUploadMode) + 1, s_configurationsMemoryPool);
     assert(g_ConfigurationStruct.loggerUploadMode);
     strcpy(g_ConfigurationStruct.loggerUploadMode,tempLoggerUploadMode);
 
@@ -235,10 +283,10 @@ static void setGateWayID(const cJSON *cJson)
 
     if(g_ConfigurationStruct.gateWayId != NULL)
     {
-        OsalFree(g_ConfigurationStruct.gateWayId);
+        OsalFreeFromMemoryPool(g_ConfigurationStruct.gateWayId, s_configurationsMemoryPool);
     }
 
-    g_ConfigurationStruct.gateWayId = OsalMalloc(strlen(tempGateWayID) + 1);
+    g_ConfigurationStruct.gateWayId = OsalMallocFromMemoryPool(strlen(tempGateWayID) + 1, s_configurationsMemoryPool);
     assert(g_ConfigurationStruct.gateWayId);
     strcpy(g_ConfigurationStruct.gateWayId,tempGateWayID);
 
@@ -254,10 +302,10 @@ static void setGateWayType(const cJSON *cJson)
 
     if(g_ConfigurationStruct.gateWayType != NULL)
     {
-        OsalFree(g_ConfigurationStruct.gateWayType);
+        OsalFreeFromMemoryPool(g_ConfigurationStruct.gateWayType, s_configurationsMemoryPool);
     }
 
-    g_ConfigurationStruct.gateWayType = OsalMalloc(strlen(tempGateWayType) + 1);
+    g_ConfigurationStruct.gateWayType = OsalMallocFromMemoryPool(strlen(tempGateWayType) + 1, s_configurationsMemoryPool);
     assert(g_ConfigurationStruct.gateWayType);
     strcpy(g_ConfigurationStruct.gateWayType,tempGateWayType);
 
@@ -273,10 +321,10 @@ static void setGateWayName(const cJSON *cJson)
 
     if(g_ConfigurationStruct.gateWayName != NULL)
     {
-        OsalFree(g_ConfigurationStruct.gateWayName);
+        OsalFreeFromMemoryPool(g_ConfigurationStruct.gateWayName, s_configurationsMemoryPool);
     }
 
-    g_ConfigurationStruct.gateWayName = OsalMalloc(strlen(tempGateWayName) + 1);
+    g_ConfigurationStruct.gateWayName = OsalMallocFromMemoryPool(strlen(tempGateWayName) + 1, s_configurationsMemoryPool);
     assert(g_ConfigurationStruct.gateWayName);
     strcpy(g_ConfigurationStruct.gateWayName,tempGateWayName);
 
@@ -294,14 +342,26 @@ static void setIsLocationSupported(const cJSON *cJson)
     g_ConfigurationStruct.isLocationSupported = boolResult;
 }
 
-static void setLocation(const cJSON *cJson)
+static void setLatitude(const cJSON *cJson)
 {
     SDK_STAT status = SDK_SUCCESS;
-    g_ConfigurationStruct.location = cJSON_GetNumberValue(cJson);
+    g_ConfigurationStruct.latitude = cJSON_GetNumberValue(cJson);
     char doubleAsString[MAX_DOUBLE_DIGITS] = {0};
 
-    sprintf(doubleAsString, "%lf", g_ConfigurationStruct.location);
-    status = DevStorageWrite(s_confParamsTable[CONF_PARAM_LOCATION],
+    sprintf(doubleAsString, "%lf", g_ConfigurationStruct.latitude);
+    status = DevStorageWrite(s_confParamsTable[CONF_PARAM_LATITUDE],
+                                doubleAsString, strlen(doubleAsString));
+    assert(status == SDK_SUCCESS);
+}
+
+static void setLongitude(const cJSON *cJson)
+{
+    SDK_STAT status = SDK_SUCCESS;
+    g_ConfigurationStruct.longitude = cJSON_GetNumberValue(cJson);
+    char doubleAsString[MAX_DOUBLE_DIGITS] = {0};
+
+    sprintf(doubleAsString, "%lf", g_ConfigurationStruct.latitude);
+    status = DevStorageWrite(s_confParamsTable[CONF_PARAM_LONGITUDE],
                                 doubleAsString, strlen(doubleAsString));
     assert(status == SDK_SUCCESS);
 }
@@ -313,10 +373,10 @@ static void setMqttServer(const cJSON *cJson)
 
     if(g_ConfigurationStruct.mqttServer != NULL)
     {
-        OsalFree(g_ConfigurationStruct.mqttServer);
+        OsalFreeFromMemoryPool(g_ConfigurationStruct.mqttServer, s_configurationsMemoryPool);
     }
 
-    g_ConfigurationStruct.mqttServer = OsalMalloc(strlen(tempMqttServer) + 1);
+    g_ConfigurationStruct.mqttServer = OsalMallocFromMemoryPool(strlen(tempMqttServer) + 1, s_configurationsMemoryPool);
     assert(g_ConfigurationStruct.mqttServer);
     strcpy(g_ConfigurationStruct.mqttServer,tempMqttServer);
 
@@ -325,19 +385,36 @@ static void setMqttServer(const cJSON *cJson)
     assert(status == SDK_SUCCESS);
 }
 
+static void setApiVersion(const cJSON *cJson)
+{
+    SDK_STAT status = SDK_SUCCESS;
+    char * givenApiVersion = cJSON_GetStringValue(cJson);
+
+    if(g_ConfigurationStruct.apiVersion != NULL)
+    {
+        OsalFreeFromMemoryPool(g_ConfigurationStruct.apiVersion, s_configurationsMemoryPool);
+    }
+    g_ConfigurationStruct.apiVersion = OsalMallocFromMemoryPool(strlen(givenApiVersion) + 1, s_configurationsMemoryPool);
+    assert(g_ConfigurationStruct.apiVersion);
+    strcpy(g_ConfigurationStruct.apiVersion, givenApiVersion);
+    status = DevStorageWrite(s_confParamsTable[CONF_PARAM_API_VERSION],
+                                g_ConfigurationStruct.apiVersion, strlen(g_ConfigurationStruct.apiVersion));
+    assert(status == SDK_SUCCESS);
+}
+
 static char * readFromStorageAssist(eConfigurationParams confParam)
 {
     SDK_STAT status = SDK_SUCCESS;
 
-    char * tempStorageAllocation = OsalMalloc(MAX_CONF_PARAM_SIZE);
+    char * tempStorageAllocation = OsalMallocFromMemoryPool(MAX_CONF_PARAM_SIZE, s_configurationsMemoryPool);
     assert(tempStorageAllocation);
 
     status = DevStorageRead(s_confParamsTable[confParam], tempStorageAllocation, MAX_CONF_PARAM_SIZE);
 
     if(status == SDK_NOT_FOUND)
     {
-        OsalFree(tempStorageAllocation);
-        tempStorageAllocation = OsalMalloc(strlen(s_defaultParamsValue[confParam]) + 1);
+        OsalFreeFromMemoryPool(tempStorageAllocation, s_configurationsMemoryPool);
+        tempStorageAllocation = OsalMallocFromMemoryPool(strlen(s_defaultParamsValue[confParam]) + 1, s_configurationsMemoryPool);
         strcpy(tempStorageAllocation, s_defaultParamsValue[confParam]);
     }
     else
@@ -348,11 +425,11 @@ static char * readFromStorageAssist(eConfigurationParams confParam)
     return tempStorageAllocation;
 }
 
-void ConfigurationInit()
+SDK_STAT ConfigurationInit()
 {
     SDK_STAT status = SDK_SUCCESS; 
     status = DevStorageInit();
-    assert(status == SDK_SUCCESS);
+    RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
     // Read params
 
@@ -363,22 +440,22 @@ void ConfigurationInit()
     // LoggerSeverity
     char * tempSeverity = readFromStorageAssist(CONF_PARAM_LOGGER_SEVERITY);
     g_ConfigurationStruct.loggerSeverity = stringToLogSeverity(tempSeverity);
-    OsalFree(tempSeverity);
+    OsalFreeFromMemoryPool(tempSeverity, s_configurationsMemoryPool);
 
     // LoggerLocalTrace
     char * tempLocalTrace = readFromStorageAssist(CONF_PARAM_LOGGER_LOCAL_TRACE);
     g_ConfigurationStruct.loggerLocalTraceConfig = stringToBool(tempLocalTrace);
-    OsalFree(tempLocalTrace);
+    OsalFreeFromMemoryPool(tempLocalTrace, s_configurationsMemoryPool);
 
     // LoggerNumberOfLogs
     char * tempNumberOfLogs = readFromStorageAssist(CONF_PARAM_LOGGER_NUMBER_OF_LOGS);
     g_ConfigurationStruct.loggerNumberOfLogs = stringToInt(tempNumberOfLogs);
-    OsalFree(tempNumberOfLogs);
+    OsalFreeFromMemoryPool(tempNumberOfLogs, s_configurationsMemoryPool);
 
     // UUID 
     char * tempUUID = readFromStorageAssist(CONF_PARAM_UUID_TO_FILTER);
     g_ConfigurationStruct.uuidToFilter = stringToUint16(tempUUID);
-    OsalFree(tempUUID);
+    OsalFreeFromMemoryPool(tempUUID, s_configurationsMemoryPool);
 
     // GateWayID
     char * tempGateWayID = readFromStorageAssist(CONF_PARAM_GATEWAY_ID);
@@ -395,18 +472,29 @@ void ConfigurationInit()
     // LocationSupported
     char * tempLocationSupported = readFromStorageAssist(CONF_PARAM_IS_LOCATION_SUPPORTED);
     g_ConfigurationStruct.isLocationSupported = stringToBool(tempLocationSupported);
-    OsalFree(tempLocationSupported);
+    OsalFreeFromMemoryPool(tempLocationSupported, s_configurationsMemoryPool);
 
-    // Location 
-    char * tempLocation = readFromStorageAssist(CONF_PARAM_LOCATION);
-    g_ConfigurationStruct.location = stringToDouble(tempLocation);
-    OsalFree(tempLocation);
+    // latitude 
+    char * latitude = readFromStorageAssist(CONF_PARAM_LATITUDE);
+    g_ConfigurationStruct.latitude = stringToDouble(latitude);
+    OsalFreeFromMemoryPool(latitude, s_configurationsMemoryPool);
+
+    // longitude 
+    char * longitude = readFromStorageAssist(CONF_PARAM_LONGITUDE);
+    g_ConfigurationStruct.longitude = stringToDouble(longitude);
+    OsalFreeFromMemoryPool(longitude, s_configurationsMemoryPool);
 
     // MqttServer
     char * tempMqttServer = readFromStorageAssist(CONF_PARAM_MQTT_SERVER);
     g_ConfigurationStruct.mqttServer = tempMqttServer;
+    
+    //api version 
+    char* apiVersion = readFromStorageAssist(CONF_PARAM_API_VERSION);
+    g_ConfigurationStruct.apiVersion = apiVersion;
 
     s_isConfigurationTableSet = true;
+
+    return SDK_SUCCESS;
 }
 
 SDK_STAT SetConfiguration(const cJSON *item)
@@ -440,4 +528,100 @@ SDK_STAT SetConfiguration(const cJSON *item)
 bool isConfigurationTableSet()
 {
     return s_isConfigurationTableSet;
+}
+
+static void addLocationToJson(cJSON* root)
+{
+    double loc = 0;
+    char locationStr[MAX_CONF_PARAM_SIZE] = {0};
+    GetLatitude(&loc);
+    sprintf(locationStr, "%lf", loc);
+    cJSON_AddStringToObject(root, s_confParamsTable[CONF_PARAM_LATITUDE], locationStr);
+    GetLongitude(&loc);
+    sprintf(locationStr, "%lf", loc);
+    cJSON_AddStringToObject(root, s_confParamsTable[CONF_PARAM_LONGITUDE], locationStr);
+}
+
+static const char * getConfigurationJsonString()
+{
+	cJSON *root = cJSON_CreateObject();
+    char * confStr = NULL;
+
+    const char * gateWayId = NULL;
+    GetGateWayName(&gateWayId);
+    cJSON_AddStringToObject(root, s_confParamsTable[CONF_PARAM_GATEWAY_ID], gateWayId);
+
+    const char * gateWayType = NULL;
+    GetGateWayType(&gateWayType);
+    cJSON_AddStringToObject(root, s_confParamsTable[CONF_PARAM_GATEWAY_TYPE], gateWayType);
+
+    const char * apiVersion = NULL;
+    GetApiVersion(&apiVersion);
+    cJSON_AddStringToObject(root, s_confParamsTable[CONF_PARAM_API_VERSION], apiVersion);
+    
+    cJSON *configPart = cJSON_CreateObject();
+    //adding api version twice as request    
+    cJSON_AddStringToObject(configPart, s_confParamsTable[CONF_PARAM_API_VERSION], apiVersion);
+
+	const char * loggerUploadModePtr = NULL;
+	GetLoggerUploadMode(&loggerUploadModePtr);
+	cJSON_AddStringToObject(configPart, s_confParamsTable[CONF_PARAM_LOGGER_UPLOAD_MODE], loggerUploadModePtr);
+
+	eLogTypes loggerSeverity = {0};
+	GetLoggerSeverity(&loggerSeverity);
+	cJSON_AddStringToObject(configPart, s_confParamsTable[CONF_PARAM_LOGGER_SEVERITY], severityToString(loggerSeverity));
+
+    bool loggerLocalTraceConfig = false;
+    GetLoggerLocalTraceConfig(&loggerLocalTraceConfig);
+    char * loggerLocalTraceConfigStr = (loggerLocalTraceConfig ? CONFIG_STRING_TRUE : CONFIG_STRING_FALSE);
+    cJSON_AddStringToObject(configPart, s_confParamsTable[CONF_PARAM_LOGGER_LOCAL_TRACE], loggerLocalTraceConfigStr);
+    
+    int loggerNumberOfLogs = 0; 
+    GetLoggerNumberOfLogs(&loggerNumberOfLogs);
+    char loggerNumberOfLogsStr[MAX_CONF_PARAM_SIZE] = {0};
+    __itoa(loggerNumberOfLogs, loggerNumberOfLogsStr, DECIMAL_BASE);
+    cJSON_AddStringToObject(configPart, s_confParamsTable[CONF_PARAM_LOGGER_NUMBER_OF_LOGS], loggerNumberOfLogsStr);
+
+    uint16_t uuidToFilter = 0;
+    GetUuidToFilter(&uuidToFilter);
+    char uuidToFilterStr[MAX_CONF_PARAM_SIZE] = {0};
+    __utoa(uuidToFilter, uuidToFilterStr, HEXADECIMAL_BASE);
+    cJSON_AddStringToObject(configPart, s_confParamsTable[CONF_PARAM_UUID_TO_FILTER], uuidToFilterStr);
+
+    const char * gateWayName = NULL;
+    GetGateWayName(&gateWayName);
+    cJSON_AddStringToObject(configPart, s_confParamsTable[CONF_PARAM_GATEWAY_NAME], gateWayName);
+
+    bool isLocationSupported = false;
+    GetIsLocationSupported(&isLocationSupported);
+    char * isLocationSupportedStr = (isLocationSupported ? CONFIG_STRING_TRUE : CONFIG_STRING_FALSE);
+    cJSON_AddStringToObject(configPart, s_confParamsTable[CONF_PARAM_IS_LOCATION_SUPPORTED], isLocationSupportedStr);
+    
+    addLocationToJson(configPart);
+
+    const char * mqttServer = NULL;
+    GetMqttServer(&mqttServer);
+    cJSON_AddStringToObject(configPart, s_confParamsTable[CONF_PARAM_MQTT_SERVER], mqttServer);
+
+    cJSON_AddItemToObject(root, CONFIG_PARAM_JSON_STRING, configPart);
+
+    SDK_STAT res = AppendServiceDiscovery(root);
+    assert(res == SDK_SUCCESS);
+
+	confStr = cJSON_PrintUnformatted(root);
+	cJSON_Delete(root);
+
+    return confStr;
+}
+
+SDK_STAT SendConfigurationToServer()
+{
+    SDK_STAT status = SDK_SUCCESS;
+    const char * confStr = getConfigurationJsonString();
+    const char * topic = GetMqttStatusTopic();
+
+	status = NetworkMqttMsgSend(topic, (char*)confStr, strlen(confStr));
+	FreeJsonString((char*)confStr);
+
+    return status;
 }
