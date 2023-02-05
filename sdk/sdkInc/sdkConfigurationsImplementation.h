@@ -12,10 +12,10 @@ typedef struct{
     eLogTypes   loggerSeverity;
     bool        loggerLocalTraceConfig;
     int         loggerNumberOfLogs;
-    uint16_t    uuidToFilter; // think about this
-    char *      gateWayId;
-    char *      gateWayType;
-    char *      gateWayName;
+    uint16_t    uuidToFilter; 
+    char *      accountId;
+    char *      gatewayType;
+    char *      gatewayId;
     bool        isLocationSupported;
     double      latitude;
     double      longitude;
@@ -140,7 +140,7 @@ inline SDK_STAT GetUuidToFilter(uint16_t * uuidToFilter)
     return SDK_SUCCESS;
 }
 
-inline SDK_STAT GetGateWayID(const char** gateWayId)
+inline SDK_STAT GetAccountID(const char** accountId)
 {
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
@@ -150,21 +150,21 @@ inline SDK_STAT GetGateWayID(const char** gateWayId)
         return SDK_INVALID_STATE;
     }
 
-    if(!gateWayId)
+    if(!accountId)
     {
         return SDK_INVALID_PARAMS;
     }
 
-    if(!confStructPtr->gateWayId)
+    if(!confStructPtr->accountId)
     {
         return SDK_FAILURE;
     }
 
-    *gateWayId = confStructPtr->gateWayId;
+    *accountId = confStructPtr->accountId;
     return SDK_SUCCESS;
 }
 
-inline SDK_STAT GetGateWayType(const char** gateWayType)
+inline SDK_STAT GetGatewayType(const char** gatewayType)
 {   
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
@@ -174,21 +174,21 @@ inline SDK_STAT GetGateWayType(const char** gateWayType)
         return SDK_INVALID_STATE;
     }
 
-    if(!gateWayType)
+    if(!gatewayType)
     {
         return SDK_INVALID_PARAMS;
     }
 
-    if(!confStructPtr->gateWayType)
+    if(!confStructPtr->gatewayType)
     {
         return SDK_FAILURE;
     }
     
-    *gateWayType = confStructPtr->gateWayType;
+    *gatewayType = confStructPtr->gatewayType;
     return SDK_SUCCESS;
 }
 
-inline SDK_STAT GetGateWayName(const char** gateWayName)
+inline SDK_STAT GetGatewayId(const char** gatewayId)
 {   
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
@@ -198,17 +198,17 @@ inline SDK_STAT GetGateWayName(const char** gateWayName)
         return SDK_INVALID_STATE;
     }
 
-    if(!gateWayName)
+    if(!gatewayId)
     {
         return SDK_INVALID_PARAMS;
     }
 
-    if(!confStructPtr->gateWayName)
+    if(!confStructPtr->gatewayId)
     {
         return SDK_FAILURE;
     }
     
-    *gateWayName = confStructPtr->gateWayName;
+    *gatewayId = confStructPtr->gatewayId;
     return SDK_SUCCESS;
 }
 

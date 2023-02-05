@@ -134,14 +134,14 @@ static char * getUrlExtGateWayOwn(char * buff)
 {
 	SDK_STAT status = SDK_SUCCESS;
 	int offset = 0;
-	const char * gateWayPtr = NULL;
+	const char * accountIdPtr = NULL;
 
 	offset = sprintf(buff,"/test/v1/owner/");
 
-	status = GetGateWayID(&gateWayPtr);
+	status = GetAccountID(&accountIdPtr);
 	assert(status == SDK_SUCCESS);
 
-    offset += sprintf(buff + offset, "%s", gateWayPtr);
+    offset += sprintf(buff + offset, "%s", accountIdPtr);
     offset += sprintf(buff + offset, "/gateway");
 
     return buff; 
@@ -155,7 +155,7 @@ static void getBodyGateWay(char * buff)
 
 	offset = sprintf(buff,"{\r\n    \"gateways\":[\"");
 
-	status = GetGateWayName(&gateWayPtr);
+	status = GetGatewayId(&gateWayPtr);
 	assert(status == SDK_SUCCESS);
 
     offset += sprintf(buff + offset, "%s", gateWayPtr);
@@ -170,7 +170,7 @@ static char * getBodyRegUsrCodePre(char * buff)
 
 	offset = sprintf(buff,"{\r\n    \"gatewayId\":\"");
 
-	status = GetGateWayName(&gateWayPtr);
+	status = GetGatewayId(&gateWayPtr);
 	assert(status == SDK_SUCCESS);
 
     offset += sprintf(buff + offset, "%s", gateWayPtr);
@@ -187,7 +187,7 @@ static char * getBodyRegDevCodePre(char * buff)
 
 	offset = sprintf(buff,"{\r\n    \"gatewayId\":\"");
 
-	status = GetGateWayName(&gateWayPtr);
+	status = GetGatewayId(&gateWayPtr);
 	assert(status == SDK_SUCCESS);
 
     offset += sprintf(buff + offset, "%s", gateWayPtr);
@@ -699,6 +699,9 @@ SDK_STAT UpdateAccessToken(Token refreshToken, Token * accessToken, uint32_t * a
     AtCmndsParams cmndsParams = {0};
 	char * httpMsgString = NULL;
 	char extendedUrlWithRefreshToken[sizeof(URL_EXT_UPDATE_ACCESS) + SIZE_OF_REFRESH_TOKEN + 1] = {0};
+	bool currentLTEConfig = s_isLTEConfigurationDone;
+
+	s_isLTEConfigurationDone = false;
 
 	if(!refreshToken || !accessToken || !accessTokenExpiry)
 	{
@@ -726,6 +729,7 @@ SDK_STAT UpdateAccessToken(Token refreshToken, Token * accessToken, uint32_t * a
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
 	cJSON * checkDataJson = cJSON_GetObjectItem(s_lastJson, "access_token");
+
 	if(checkDataJson)
 	{
 		memcpy(s_accessToken, cJSON_GetStringValue(checkDataJson), SIZE_OF_ACCESS_TOKEN_FULL);
@@ -738,15 +742,18 @@ SDK_STAT UpdateAccessToken(Token refreshToken, Token * accessToken, uint32_t * a
 		}
 		else
 		{
+			s_isLTEConfigurationDone = currentLTEConfig;
 			cJSON_Delete(s_lastJson);
 			return SDK_FAILURE;
 		}
 
+		s_isLTEConfigurationDone = currentLTEConfig;
 		cJSON_Delete(s_lastJson);
 		return SDK_SUCCESS;
 	}
 	else
 	{
+		s_isLTEConfigurationDone = currentLTEConfig;
 		cJSON_Delete(s_lastJson);
 		return SDK_FAILURE;
 	}
@@ -808,20 +815,20 @@ static SDK_STAT connectToSSL()
 	int len = 0;
 	SDK_STAT status = SDK_SUCCESS;
 	const char * gateWayNamePtr = NULL;
-	const char * gateWayIdPtr = NULL;
+	const char * accountIdPtr = NULL;
 	MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
 	uint8_t errCode[] = MQTT_ERROR_CODE_CONNECT;
 
-	status = GetGateWayName(&gateWayNamePtr);
+	status = GetGatewayId(&gateWayNamePtr);
 	assert(status == SDK_SUCCESS);
 
-	status = GetGateWayID(&gateWayIdPtr);
+	status = GetAccountID(&accountIdPtr);
 	assert(status == SDK_SUCCESS);
 
 	data.clientID.cstring = (char *)gateWayNamePtr;
 	data.keepAliveInterval = MQTT_KEEP_ALIVE_INTERVAL;
 	data.cleansession = MQTT_CLEAN_SESSION;
-	data.username.cstring = (char *)gateWayIdPtr;
+	data.username.cstring = (char *)accountIdPtr;
 	data.password.cstring = (char *)s_accessToken; // here acceess token
 
 	len = MQTTSerialize_connect(s_mqttPacketBuff, sizeof(s_mqttPacketBuff), &data);
@@ -1051,6 +1058,13 @@ SDK_STAT UpdateRefreshToken(Token refreshToken)
 	}
 
 	OsalFree(zeroPaddedRefreshToken);
+	return SDK_SUCCESS;
+}
+
+SDK_STAT ReconnectToNetwork()
+{
+	OsalSystemReset();
+
 	return SDK_SUCCESS;
 }
 

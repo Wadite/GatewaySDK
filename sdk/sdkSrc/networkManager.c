@@ -22,6 +22,7 @@
 #endif
 
 #define ACCESS_TOKEN_REFRESH_WINDOW_MS           (300000)
+#define RECONNECTION_ATTEMPTS                    (5)
 
 OSAL_CREATE_POOL(s_networkManagerMemPool, SIZE_OF_NETWORK_MANAGER_MEMORY);
 
@@ -135,11 +136,23 @@ static SDK_STAT reconnectToMqtt()
 static void reconnectionFlow()
 {
     SDK_STAT status = SDK_SUCCESS;
+    uint8_t attempts  = 0;
 
     s_isNetworkConnected = false;
     
     status = reconnectToMqtt();
-    if(status != SDK_SUCCESS)
+    while((status != SDK_SUCCESS) && attempts < RECONNECTION_ATTEMPTS)
+    {
+        attempts++;
+        status = ReconnectToNetwork();
+
+        if(status == SDK_SUCCESS)
+        {
+            status = reconnectToMqtt();
+        }
+    }
+
+    if(attempts == RECONNECTION_ATTEMPTS && status != SDK_SUCCESS)
     {
         OsalSystemReset();
     }

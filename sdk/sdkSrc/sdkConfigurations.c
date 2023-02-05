@@ -37,9 +37,9 @@
 #define DEFAULT_CONF_LOCAL_TRACE        CONFIG_STRING_TRUE
 #define DEFAULT_CONF_NUMBER_OF_LOGS     "5"
 #define DEFAULT_CONF_UUID               "0xfdaf"
-#define DEFAULT_CONF_GATEWAY_ID         "102115004740"
+#define DEFAULT_CONF_ACCOUNT_ID         "102115004740"
 #define DEFAULT_CONF_GATEWAY_TYPE       "other"
-#define DEFAULT_CONF_GATEWAY_NAME       "GWtandem"
+#define DEFAULT_CONF_GATEWAY_ID         "GWtandem"
 #define DEFAULT_CONF_LOCATION_SUPPORT   CONFIG_STRING_TRUE
 #define DEFAULT_CONF_LOCATION           "0.0"
 #define DEFAULT_CONF_MQTT_SERVER        "mqtt-shared-v2-dev.aws.wiliot.com"
@@ -52,9 +52,9 @@ static void setLoggerSeverity(const cJSON *cJson);
 static void setLoggerLocalTraceConfig(const cJSON *cJson);
 static void setLoggerNumberOfLogs(const cJSON *cJson);
 static void setUuidToFilter(const cJSON *cJson);
-static void setGateWayID(const cJSON *cJson);
-static void setGateWayType(const cJSON *cJson);
-static void setGateWayName(const cJSON *cJson);
+static void setAccountID(const cJSON *cJson);
+static void setGatewayType(const cJSON *cJson);
+static void setGatewayId(const cJSON *cJson);
 static void setIsLocationSupported(const cJSON *cJson);
 static void setLatitude(const cJSON *cJson);
 static void setLongitude(const cJSON *cJson);
@@ -64,18 +64,18 @@ static void setApiVersion(const cJSON *cJson);
 typedef void(*SetFunction)(const cJSON*);
 
 static const char * s_confParamsTable[CONF_PARAM_NUM] = {
-	[CONF_PARAM_LOGGER_UPLOAD_MODE]         = "LoggerUploadMode",
-	[CONF_PARAM_LOGGER_SEVERITY]            = "LoggerSeverity",
-	[CONF_PARAM_LOGGER_LOCAL_TRACE]         = "LoggerLocalTrace",
-	[CONF_PARAM_LOGGER_NUMBER_OF_LOGS]      = "LoggerNumberOfLogs",
-    [CONF_PARAM_UUID_TO_FILTER]             = "UUID",
-    [CONF_PARAM_GATEWAY_ID]                 = "gatewayID",
+	[CONF_PARAM_LOGGER_UPLOAD_MODE]         = "loggerUploadMode",
+	[CONF_PARAM_LOGGER_SEVERITY]            = "loggerSeverity",
+	[CONF_PARAM_LOGGER_LOCAL_TRACE]         = "loggerLocalTrace",
+	[CONF_PARAM_LOGGER_NUMBER_OF_LOGS]      = "loggerNumberOfLogs",
+    [CONF_PARAM_UUID_TO_FILTER]             = "uuid",
+    [CONF_PARAM_ACCOUNT_ID]                 = "accountId",
 	[CONF_PARAM_GATEWAY_TYPE]               = "gatewayType",
-	[CONF_PARAM_GATEWAY_NAME]               = "GateWayName",
-    [CONF_PARAM_IS_LOCATION_SUPPORTED]      = "LocationSupported",
+	[CONF_PARAM_GATEWAY_ID]                 = "gatewayId",
+    [CONF_PARAM_IS_LOCATION_SUPPORTED]      = "locationSupported",
     [CONF_PARAM_LATITUDE]                   = "lat",
     [CONF_PARAM_LONGITUDE]                  = "lng",
-    [CONF_PARAM_MQTT_SERVER]                = "MqttServer",
+    [CONF_PARAM_MQTT_SERVER]                = "mqttServer",
     [CONF_PARAM_API_VERSION]                = "apiVersion",
 };
 
@@ -85,9 +85,9 @@ static SetFunction s_setParamsFuncPtrTable[CONF_PARAM_NUM] = {
 	[CONF_PARAM_LOGGER_LOCAL_TRACE]         = setLoggerLocalTraceConfig,
 	[CONF_PARAM_LOGGER_NUMBER_OF_LOGS]      = setLoggerNumberOfLogs,
     [CONF_PARAM_UUID_TO_FILTER]             = setUuidToFilter,
-    [CONF_PARAM_GATEWAY_ID]                 = setGateWayID,
-	[CONF_PARAM_GATEWAY_TYPE]               = setGateWayType,
-	[CONF_PARAM_GATEWAY_NAME]               = setGateWayName,
+    [CONF_PARAM_ACCOUNT_ID]                 = setAccountID,
+	[CONF_PARAM_GATEWAY_TYPE]               = setGatewayType,
+	[CONF_PARAM_GATEWAY_ID]                 = setGatewayId,
     [CONF_PARAM_IS_LOCATION_SUPPORTED]      = setIsLocationSupported,
     [CONF_PARAM_LATITUDE]                   = setLatitude,
     [CONF_PARAM_LONGITUDE]                  = setLongitude,
@@ -101,9 +101,9 @@ static const char * s_defaultParamsValue[CONF_PARAM_NUM] = {
 	[CONF_PARAM_LOGGER_LOCAL_TRACE]         = DEFAULT_CONF_LOCAL_TRACE,
 	[CONF_PARAM_LOGGER_NUMBER_OF_LOGS]      = DEFAULT_CONF_NUMBER_OF_LOGS,
     [CONF_PARAM_UUID_TO_FILTER]             = DEFAULT_CONF_UUID,
-    [CONF_PARAM_GATEWAY_ID]                 = DEFAULT_CONF_GATEWAY_ID,
+    [CONF_PARAM_ACCOUNT_ID]                 = DEFAULT_CONF_ACCOUNT_ID,
 	[CONF_PARAM_GATEWAY_TYPE]               = DEFAULT_CONF_GATEWAY_TYPE,
-	[CONF_PARAM_GATEWAY_NAME]               = DEFAULT_CONF_GATEWAY_NAME,
+	[CONF_PARAM_GATEWAY_ID]                 = DEFAULT_CONF_GATEWAY_ID,
     [CONF_PARAM_IS_LOCATION_SUPPORTED]      = DEFAULT_CONF_LOCATION_SUPPORT,
     [CONF_PARAM_LATITUDE]                   = DEFAULT_CONF_LOCATION,
     [CONF_PARAM_LONGITUDE]                  = DEFAULT_CONF_LOCATION,
@@ -276,60 +276,60 @@ static void setUuidToFilter(const cJSON *cJson)
     assert(status == SDK_SUCCESS);
 }
 
-static void setGateWayID(const cJSON *cJson)
+static void setAccountID(const cJSON *cJson)
 {
     SDK_STAT status = SDK_SUCCESS;
-    char * tempGateWayID = cJSON_GetStringValue(cJson);
+    char * tempAccountID = cJSON_GetStringValue(cJson);
 
-    if(g_ConfigurationStruct.gateWayId != NULL)
+    if(g_ConfigurationStruct.accountId != NULL)
     {
-        OsalFreeFromMemoryPool(g_ConfigurationStruct.gateWayId, s_configurationsMemoryPool);
+        OsalFreeFromMemoryPool(g_ConfigurationStruct.accountId, s_configurationsMemoryPool);
     }
 
-    g_ConfigurationStruct.gateWayId = OsalMallocFromMemoryPool(strlen(tempGateWayID) + 1, s_configurationsMemoryPool);
-    assert(g_ConfigurationStruct.gateWayId);
-    strcpy(g_ConfigurationStruct.gateWayId,tempGateWayID);
+    g_ConfigurationStruct.accountId = OsalMallocFromMemoryPool(strlen(tempAccountID) + 1, s_configurationsMemoryPool);
+    assert(g_ConfigurationStruct.accountId);
+    strcpy(g_ConfigurationStruct.accountId,tempAccountID);
 
-    status = DevStorageWrite(s_confParamsTable[CONF_PARAM_GATEWAY_ID],
-                                g_ConfigurationStruct.gateWayId, strlen(g_ConfigurationStruct.gateWayId));
+    status = DevStorageWrite(s_confParamsTable[CONF_PARAM_ACCOUNT_ID],
+                                g_ConfigurationStruct.accountId, strlen(g_ConfigurationStruct.accountId));
     assert(status == SDK_SUCCESS);
 }
 
-static void setGateWayType(const cJSON *cJson)
+static void setGatewayType(const cJSON *cJson)
 {
     SDK_STAT status = SDK_SUCCESS;
-    char * tempGateWayType = cJSON_GetStringValue(cJson);
+    char * tempGatewayType = cJSON_GetStringValue(cJson);
 
-    if(g_ConfigurationStruct.gateWayType != NULL)
+    if(g_ConfigurationStruct.gatewayType != NULL)
     {
-        OsalFreeFromMemoryPool(g_ConfigurationStruct.gateWayType, s_configurationsMemoryPool);
+        OsalFreeFromMemoryPool(g_ConfigurationStruct.gatewayType, s_configurationsMemoryPool);
     }
 
-    g_ConfigurationStruct.gateWayType = OsalMallocFromMemoryPool(strlen(tempGateWayType) + 1, s_configurationsMemoryPool);
-    assert(g_ConfigurationStruct.gateWayType);
-    strcpy(g_ConfigurationStruct.gateWayType,tempGateWayType);
+    g_ConfigurationStruct.gatewayType = OsalMallocFromMemoryPool(strlen(tempGatewayType) + 1, s_configurationsMemoryPool);
+    assert(g_ConfigurationStruct.gatewayType);
+    strcpy(g_ConfigurationStruct.gatewayType,tempGatewayType);
 
     status = DevStorageWrite(s_confParamsTable[CONF_PARAM_GATEWAY_TYPE],
-                                g_ConfigurationStruct.gateWayType, strlen(g_ConfigurationStruct.gateWayType));
+                                g_ConfigurationStruct.gatewayType, strlen(g_ConfigurationStruct.gatewayType));
     assert(status == SDK_SUCCESS);
 }
 
-static void setGateWayName(const cJSON *cJson)
+static void setGatewayId(const cJSON *cJson)
 {
     SDK_STAT status = SDK_SUCCESS;
-    char * tempGateWayName = cJSON_GetStringValue(cJson);
+    char * tempGatewayId = cJSON_GetStringValue(cJson);
 
-    if(g_ConfigurationStruct.gateWayName != NULL)
+    if(g_ConfigurationStruct.gatewayId != NULL)
     {
-        OsalFreeFromMemoryPool(g_ConfigurationStruct.gateWayName, s_configurationsMemoryPool);
+        OsalFreeFromMemoryPool(g_ConfigurationStruct.gatewayId, s_configurationsMemoryPool);
     }
 
-    g_ConfigurationStruct.gateWayName = OsalMallocFromMemoryPool(strlen(tempGateWayName) + 1, s_configurationsMemoryPool);
-    assert(g_ConfigurationStruct.gateWayName);
-    strcpy(g_ConfigurationStruct.gateWayName,tempGateWayName);
+    g_ConfigurationStruct.gatewayId = OsalMallocFromMemoryPool(strlen(tempGatewayId) + 1, s_configurationsMemoryPool);
+    assert(g_ConfigurationStruct.gatewayId);
+    strcpy(g_ConfigurationStruct.gatewayId,tempGatewayId);
 
-    status = DevStorageWrite(s_confParamsTable[CONF_PARAM_GATEWAY_NAME],
-                                g_ConfigurationStruct.gateWayName, strlen(g_ConfigurationStruct.gateWayName));
+    status = DevStorageWrite(s_confParamsTable[CONF_PARAM_GATEWAY_ID],
+                                g_ConfigurationStruct.gatewayId, strlen(g_ConfigurationStruct.gatewayId));
     assert(status == SDK_SUCCESS);
 }
 
@@ -458,16 +458,16 @@ SDK_STAT ConfigurationInit()
     OsalFreeFromMemoryPool(tempUUID, s_configurationsMemoryPool);
 
     // GateWayID
-    char * tempGateWayID = readFromStorageAssist(CONF_PARAM_GATEWAY_ID);
-    g_ConfigurationStruct.gateWayId = tempGateWayID;
+    char * tempGateWayID = readFromStorageAssist(CONF_PARAM_ACCOUNT_ID);
+    g_ConfigurationStruct.accountId = tempGateWayID;
 
-    // GateWayType 
-    char * tempGateWayType = readFromStorageAssist(CONF_PARAM_GATEWAY_TYPE);
-    g_ConfigurationStruct.gateWayType = tempGateWayType;
+    // GatewayType 
+    char * tempGatewayType = readFromStorageAssist(CONF_PARAM_GATEWAY_TYPE);
+    g_ConfigurationStruct.gatewayType = tempGatewayType;
 
-    // GateWayName
-    char * tempGateWayName = readFromStorageAssist(CONF_PARAM_GATEWAY_NAME);
-    g_ConfigurationStruct.gateWayName = tempGateWayName;
+    // GatewayId
+    char * tempGatewayId = readFromStorageAssist(CONF_PARAM_GATEWAY_ID);
+    g_ConfigurationStruct.gatewayId = tempGatewayId;
 
     // LocationSupported
     char * tempLocationSupported = readFromStorageAssist(CONF_PARAM_IS_LOCATION_SUPPORTED);
@@ -547,13 +547,13 @@ static const char * getConfigurationJsonString()
 	cJSON *root = cJSON_CreateObject();
     char * confStr = NULL;
 
-    const char * gateWayId = NULL;
-    GetGateWayName(&gateWayId);
-    cJSON_AddStringToObject(root, s_confParamsTable[CONF_PARAM_GATEWAY_ID], gateWayId);
+    const char * gatewayId = NULL;
+    GetGatewayId(&gatewayId);
+    cJSON_AddStringToObject(root, s_confParamsTable[CONF_PARAM_GATEWAY_ID], gatewayId);
 
-    const char * gateWayType = NULL;
-    GetGateWayType(&gateWayType);
-    cJSON_AddStringToObject(root, s_confParamsTable[CONF_PARAM_GATEWAY_TYPE], gateWayType);
+    const char * gatewayType = NULL;
+    GetGatewayType(&gatewayType);
+    cJSON_AddStringToObject(root, s_confParamsTable[CONF_PARAM_GATEWAY_TYPE], gatewayType);
 
     const char * apiVersion = NULL;
     GetApiVersion(&apiVersion);
@@ -588,9 +588,9 @@ static const char * getConfigurationJsonString()
     __utoa(uuidToFilter, uuidToFilterStr, HEXADECIMAL_BASE);
     cJSON_AddStringToObject(configPart, s_confParamsTable[CONF_PARAM_UUID_TO_FILTER], uuidToFilterStr);
 
-    const char * gateWayName = NULL;
-    GetGateWayName(&gateWayName);
-    cJSON_AddStringToObject(configPart, s_confParamsTable[CONF_PARAM_GATEWAY_NAME], gateWayName);
+    const char * accountId = NULL;
+    GetAccountID(&accountId);
+    cJSON_AddStringToObject(configPart, s_confParamsTable[CONF_PARAM_ACCOUNT_ID], accountId);
 
     bool isLocationSupported = false;
     GetIsLocationSupported(&isLocationSupported);
@@ -624,4 +624,14 @@ SDK_STAT SendConfigurationToServer()
 	FreeJsonString((char*)confStr);
 
     return status;
+}
+
+const char * GetConfigurationKeyName(eConfigurationParams confParm)
+{
+    if(confParm >= CONF_PARAM_NUM)
+    {
+        return NULL;
+    }
+
+    return s_confParamsTable[confParm];
 }

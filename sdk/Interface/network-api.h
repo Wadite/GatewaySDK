@@ -161,8 +161,21 @@ SDK_STAT UpdateRefreshToken(Token refreshToken);
  */
 bool IsAccessTokenValid(Token* token);
 
-SDK_STAT ConfigMQTTPacket(void* pkt, uint32_t length);
+/**
+ * @brief restablish network connection
+ * 
+ * @return SDK_SUCCESS upon success, relevant error otherwise
+ */
+SDK_STAT ReconnectToNetwork();
 
+/**
+ * @brief register the NetMQTTPacketCB callback so it will be called when needed.
+ * 
+ * @param cb The callback to be registered
+ * 
+ * @return SDK_INVALID_PARAMS upon null pointer
+ * @return SDK_SUCCESS upon success, relevant error otherwise
+ */
 SDK_STAT RegisterNetReceiveMQTTPacketCallback(NetMQTTPacketCB cb);
 
 #endif //_NETWORK_API_H_

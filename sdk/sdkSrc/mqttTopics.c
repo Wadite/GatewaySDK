@@ -21,11 +21,11 @@ static char * getMqttTopic(const char * topicPrefix, char * buff)
 
 	assert(buff && topicPrefix);
 	offset = sprintf(buff, "%s", topicPrefix);
-	status = GetGateWayID(&gateWayPtr);
+	status = GetAccountID(&gateWayPtr);
 	assert(status == SDK_SUCCESS);
     offset += sprintf(buff + offset, "%s", gateWayPtr);
 	offset += sprintf(buff + offset, "%s", "/");
-	status = GetGateWayName(&gateWayPtr);
+	status = GetGatewayId(&gateWayPtr);
 	assert(status == SDK_SUCCESS);
     offset += sprintf(buff + offset, "%s", gateWayPtr);
 
