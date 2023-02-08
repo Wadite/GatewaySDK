@@ -84,7 +84,10 @@ dev_handle DevInit(DEV_ID id)
 {
 	int err = 0;
 
-    __ASSERT((id == DEV_BLE),"Received bad dev id");
+    if(id != DEV_BLE)
+    {
+        return NULL;
+    }
     
     internalDevHandle = (dev_handle)INTERNAL_DEV_ID;
 

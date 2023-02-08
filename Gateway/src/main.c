@@ -28,7 +28,8 @@
 
 void main(void)
 {
-	dev_handle devHandle;
+	dev_handle localDevHandle;
+	dev_handle bleDevHandle;
 	SDK_STAT sdkStatus = 0;
 
 	OsalInit(); // System initialization starts here
@@ -36,19 +37,23 @@ void main(void)
 	sdkStatus = ConfigurationInit();
 	assert(sdkStatus == SDK_SUCCESS);
 
-	devHandle = DevInit(DEV_BLE);
-	assert(devHandle);
+	// We are expecting NULL because we don't have any local device on current platform.
+	localDevHandle = DevInit(DEV_LOCAL_FIRST);
+	// assert(localDevHandle);
+
+	bleDevHandle = DevInit(DEV_BLE);
+	assert(bleDevHandle);
 
 	sdkStatus = JsonHooksInit();
 	assert(sdkStatus == SDK_SUCCESS);
 
-	sdkStatus = UpLinkInit(devHandle);
+	sdkStatus = UpLinkInit(bleDevHandle, localDevHandle);
 	assert(sdkStatus == SDK_SUCCESS);
 
 	sdkStatus = LoggerInit();
 	assert(sdkStatus == SDK_SUCCESS);
 
-	sdkStatus = DownLinkInit(devHandle);
+	sdkStatus = DownLinkInit(bleDevHandle, localDevHandle);
 	assert(sdkStatus == SDK_SUCCESS);
 
 	sdkStatus = NetworkManagerInit();

@@ -274,6 +274,7 @@ SDK_STAT LoggerInit()
     #else
     s_queueOfLogMsg = OsalQueueCreate(s_numberOfMaxLogMsg, s_loggerMemPool);
     #endif
+    
     if(!s_queueOfLogMsg)
     {
         OsalFreeFromMemoryPool(s_tableOfLogMsg, s_loggerMemPool);
