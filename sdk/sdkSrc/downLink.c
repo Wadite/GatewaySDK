@@ -44,7 +44,8 @@ typedef struct{
 
 static void downLinkMsgThreadFunc();
 static Queue_t s_queueOfDownLinkMsg = NULL;
-static dev_handle s_devHandle = NULL;
+static dev_handle s_bleDevHandle = NULL;
+static dev_handle s_localDevHandle = NULL;
 
 #ifdef DYNAMIC_ALLOCATION_USED
 OSAL_THREAD_CREATE(downLinkMsgThread, downLinkMsgThreadFunc, SIZE_OF_DOWN_LINK_THREAD, THREAD_PRIORITY_HIGH);
@@ -125,8 +126,16 @@ static void advJson(cJSON * advJson)
             rawData[i/NUMBER_OF_CHARS_TO_READ] = (uint8_t)strtol(strToConv, NULL, HEXADECIMAL_BASE);
         }
 
-        status = DevSendPacket(s_devHandle, advDuration, advInterval, rawData, MAX_DATA_SIZE);
-        assert(status == SDK_SUCCESS);
+        if(s_bleDevHandle)
+        {
+            status = DevSendPacket(s_bleDevHandle, advDuration, advInterval, rawData, MAX_DATA_SIZE);
+            assert(status == SDK_SUCCESS);
+        }
+        if(s_localDevHandle)
+        {
+            status = DevSendPacket(s_localDevHandle, advDuration, advInterval, rawData, MAX_DATA_SIZE);
+            assert(status == SDK_SUCCESS);           
+        }
     }
 }
 
@@ -217,14 +226,16 @@ static void downLinkMsgThreadFunc()
     }
 }
 
-SDK_STAT DownLinkInit(dev_handle dev)
+SDK_STAT DownLinkInit(dev_handle bleDev, dev_handle localDev)
 {
     SDK_STAT status = SDK_SUCCESS;
+    
     #ifdef DYNAMIC_ALLOCATION_USED
     s_queueOfDownLinkMsg = OsalQueueCreate(SIZE_OF_DOWN_LINK_QUEUE);
     #else
     s_queueOfDownLinkMsg = OsalQueueCreate(SIZE_OF_DOWN_LINK_QUEUE, s_downLinkMemPool);
     #endif
+
     if(!s_queueOfDownLinkMsg)
     {
         return SDK_FAILURE;
@@ -232,7 +243,17 @@ SDK_STAT DownLinkInit(dev_handle dev)
 
     status = RegisterNetReceiveMQTTPacketCallback(netReceiveMQTTPacketCallback);
     RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-    s_devHandle = dev;
+
+    if(bleDev)
+    {
+        s_bleDevHandle = bleDev;
+    }
+
+    if(localDev)
+    {
+
+        s_localDevHandle = localDev;
+    }
     
     return status;
 }

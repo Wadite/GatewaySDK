@@ -133,7 +133,6 @@ static void bleAdvDataProcessCallback(dev_handle dev, const void* data, uint32_t
 static char * createUpLinkJson(UpLinkMsg * lastUpLinkMsg, char * upLinkPayloadString)
 {
     char *string = NULL;
-    SDK_STAT status = SDK_SUCCESS;
 
     cJSON *upLinkJson = JsonHeaderCreate();
     if(!upLinkJson)
@@ -172,6 +171,7 @@ static char * createUpLinkJson(UpLinkMsg * lastUpLinkMsg, char * upLinkPayloadSt
     cJSON_AddItemToObject(upLinkJson, "packets", array);
 
 #ifdef DEBUG
+    // SDK_STAT status = SDK_SUCCESS;
     // char* debugString =  cJSON_Print(upLinkJson);
     // assert(debugString);
     // LOG_DEBUG_INTERNAL("\n%s\n",debugString);
@@ -226,7 +226,7 @@ static void upLinkMsgThreadFunc()
     }
 }
 
-SDK_STAT UpLinkInit(dev_handle devHandle)
+SDK_STAT UpLinkInit(dev_handle bleDev, dev_handle localDev)
 {
     SDK_STAT status = SDK_SUCCESS;
 
@@ -236,14 +236,24 @@ SDK_STAT UpLinkInit(dev_handle devHandle)
     #ifdef DYNAMIC_ALLOCATION_USED
     s_queueOfUpLinkMsg = OsalQueueCreate(SIZE_OF_UP_LINK_QUEUE);
     #else
-    s_queueOfLogMsg = OsalQueueCreate(SIZE_OF_UP_LINK_QUEUE, s_upLinkMemPool);
+    s_queueOfUpLinkMsg = OsalQueueCreate(SIZE_OF_UP_LINK_QUEUE, s_upLinkMemPool);
     #endif
     if(!s_queueOfUpLinkMsg)
     {
         return SDK_FAILURE;
     }
 
-    status = RegisterReceiveCallback(devHandle, bleAdvDataProcessCallback);
+    if(bleDev)
+    {
+        status = RegisterReceiveCallback(bleDev, bleAdvDataProcessCallback);
+        RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+    }
+
+    if(localDev)
+    {
+        status = RegisterReceiveCallback(localDev, bleAdvDataProcessCallback);
+        RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+    }
 	
     return status;
 }

@@ -755,7 +755,7 @@ SDK_STAT UpdateAccessToken(Token refreshToken, Token * accessToken, uint32_t * a
 	{
 		s_isLTEConfigurationDone = currentLTEConfig;
 		cJSON_Delete(s_lastJson);
-		return SDK_FAILURE;
+		return SDK_NOT_FOUND;
 	}
 }
 
@@ -1045,6 +1045,12 @@ SDK_STAT UpdateRefreshToken(Token refreshToken)
 	allignedSized = sizeOfRefreshToken + (SIZE_OF_WORD - (sizeOfRefreshToken % SIZE_OF_WORD));
 	zeroPaddedRefreshToken = OsalCalloc(allignedSized);
 	if(!zeroPaddedRefreshToken)
+	{
+		return SDK_FAILURE;
+	}
+
+	status = FlashErase(FLASH_PAGE_TOKENS);
+	if(status != SDK_SUCCESS)
 	{
 		return SDK_FAILURE;
 	}
