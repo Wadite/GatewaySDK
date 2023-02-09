@@ -14,7 +14,11 @@
 #endif
 
 #ifndef SIZE_OF_NETWORK_MANAGER_MEMORY
+#ifdef DYNAMIC_ALLOCATION_USED
 #define SIZE_OF_NETWORK_MANAGER_MEMORY           (128)
+#else
+#define SIZE_OF_NETWORK_MANAGER_MEMORY           (1024)
+#endif  
 #endif
 
 #ifndef SIZE_OF_NETWORK_MANGAER_QUEUE
@@ -219,13 +223,23 @@ SDK_STAT NetworkManagerInit()
 {
     SDK_STAT status = SDK_SUCCESS;
 
+    #ifdef DYNAMIC_ALLOCATION_USED
     s_mqttMsgMutex = OsalMutexCreate();
+    #else
+    s_mqttMsgMutex = OsalMutexCreate(s_networkManagerMemPool);
+    #endif
+
     if(!s_mqttMsgMutex)
     {
         return SDK_FAILURE;
     }
 
+    #ifdef DYNAMIC_ALLOCATION_USED
     s_queueOfNetworkManager = OsalQueueCreate(SIZE_OF_NETWORK_MANGAER_QUEUE);
+    #else
+    s_queueOfNetworkManager = OsalQueueCreate(SIZE_OF_NETWORK_MANGAER_QUEUE, s_networkManagerMemPool);
+    #endif
+
     if(!s_queueOfNetworkManager)
     {
         return SDK_FAILURE;
