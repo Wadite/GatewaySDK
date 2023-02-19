@@ -23,6 +23,7 @@
 #define ADV_INTERVAL_MIN(ms)	            ((ms)*10/16)
 #define STACK_SIZE_OF_ADV                   (512)
 #define INITAL_COUNT                        (0)
+#define INITAL_ONE                          (1)
 #define COUNT_LIMIT                         (1)
 #define TEN_PRECENT_OF(val)                 ((val)/10)
 #define FLASH_BEGIN                         (0)
@@ -31,6 +32,7 @@
 #define MIN_ADV_DURATION                    (1000)
 #define SIZE_OF_TYPE_AND_LENGTH             (2)
 #define ADV_TYPE_OFFSET                     (1)
+#define MAX_ADV_DURATION                    (180)
 
 #define IS_JSON_NOT_IN_FLASH(flashPage)                 ((flashPage)[FIRST_JSON_CHAR_INDEX] != '{')
 #define GET_SIZE_FOR_ALIGNMENT(jsonStringSize)          ((SIZE_OF_WORD - ((jsonStringSize) + 1) % SIZE_OF_WORD))
@@ -40,6 +42,7 @@ void devSendPackThread();
 
 OSAL_THREAD_CREATE(advThread, devSendPackThread, STACK_SIZE_OF_ADV, THREAD_PRIORITY_LOW);
 K_SEM_DEFINE(s_sendPackSem, INITAL_COUNT, COUNT_LIMIT);
+K_SEM_DEFINE(s_noAdvSem, INITAL_ONE, COUNT_LIMIT);
 
 static dev_handle internalDevHandle = 0;
 static bool s_isAdvertising = false;
@@ -68,6 +71,7 @@ void devSendPackThread()
         err = bt_le_adv_stop();
         __ASSERT((err == 0),"Advertising failed to stop");
         s_isAdvertising = false;
+        k_sem_give(&s_noAdvSem);
     }
 }
 
@@ -141,6 +145,7 @@ SDK_STAT DevSendPacket(dev_handle dev, uint32_t duration,
     s_advParams.interval_max = ADV_INTERVAL_MAX(interval+TEN_PRECENT_OF(interval));
     s_advParams.interval_min = ADV_INTERVAL_MIN(interval-TEN_PRECENT_OF(interval));
 
+    k_sem_take(&s_noAdvSem, K_FOREVER);
     err = bt_le_adv_start(&s_advParams, advBtData, ARRAY_SIZE(advBtData), NULL, 0);
     if (err) 
     {

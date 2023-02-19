@@ -45,13 +45,15 @@
 #define NETWORK_AVAILABLE_CONTEX_ID 		(1)
 #define ADDRESS_TO_PING 					"www.google.com"
 #define MODEM_RESPONSE_VERIFY_WORD			"OK"
+#define IMEI_LEN                            (15)
 #define MODEM_HTTP_URL_VERIFY_WORD			"CONNECT"
 #define MODEM_READY_VERITY_WORD				"APP RDY"
 #define MODEM_CEREG_SUCCESS_PAYLOAD			" 1,1"
 #define TIME_TO_RETRY_CEREG_PAYLOAD			(10000)
 
 #define RESPONSE_BUFFER_SIZE				(50)
-#define JWT_TOKEN							"NTUxNTU1YzAtZTUwNS00MDUwLTlmMzItYTllOTM0MjIyYTQzOm9CUFVITERrSzFZMDNQSEU1Q3Q5QWxJWHk2QzZFMU51aGZBM2M5aGNtazA="
+#define API_SEC_KEY						    "Yjk2MjAyY2ItMDcyZi00NzRiLThmNjMtOTMyOTA5N2IxOTg1OnhJNUhHSC1KcXZxNGN6NzVsZFYwUDY4Ul8xXzg3Q1lFRGl3RVJMcFJ6dlU="
+/*tandem test:"NTUxNTU1YzAtZTUwNS00MDUwLTlmMzItYTllOTM0MjIyYTQzOm9CUFVITERrSzFZMDNQSEU1Q3Q5QWxJWHk2QzZFMU51aGZBM2M5aGNtazA="*/
 #define CONNECTION_TOKEN_TYPE				"Bearer"
 #define HTTP_SEND_RECEIVE_TIMEOUT			(80)
 #define SIZE_OF_ACCESS_CONNECTION_TOKEN		(1251)
@@ -76,12 +78,13 @@
 #define SHORT_URL 							"api.wiliot.com"
 #define CONNECTION_URL						"https://"SHORT_URL
 #define TYPE_APP_JSON						"application/json"
-#define URL_EXT_ACCESS_TOKEN				"/test/v1/auth/token/api"
+#define URL_EXT_ACCESS_TOKEN				/*"/test*/"/v1/auth/token/api"
 #define URL_EXT_GATEWAY_OWN(buff)			getUrlExtGateWayOwn((buff))
-#define URL_EXT_DEVICE_AUTH					"/test/v1/gateway/device-authorize"
-#define URL_EXT_REG_GATEWAY					"/test/v2/gateway/registry"
-#define URL_EXT_GET_TOKENS					"/test/v2/gateway/token"
-#define URL_EXT_UPDATE_ACCESS				"/test/v1/gateway/refresh?refresh_token="
+#define URL_EXT_DEVICE_AUTH					/*"/test*/"/v1/gateway/device-authorize"
+#define URL_EXT_REG_GATEWAY					/*"/test*/"/v2/gateway/registry"
+#define URL_EXT_GET_TOKENS					/*"/test*/"/v2/gateway/token"
+#define URL_EXT_UPDATE_ACCESS				/*"/test*/"/v1/gateway/refresh?refresh_token="
+#define URL_PRE_REGISTER                    /*"/test*/"/v1/owner/" 
 
 #define MAX_BODY_SIZE_DIGITS_NUM			(5)
 #define BODY_GATEWAY(buff)					getBodyGateWay((buff))
@@ -129,6 +132,7 @@ static char s_addressStringBuffer[SIZE_OF_ADDRESS_BUFFER] = {0};
 NetMQTTPacketCB s_receivedMQTTPacketHandle = 0;
 handleConnStateChangeCB s_receivedConnStateHandle = 0;
 static conn_handle s_connHandle = 0;
+static bool s_anyResponse = false;
 
 static char * getUrlExtGateWayOwn(char * buff) 
 {
@@ -136,7 +140,7 @@ static char * getUrlExtGateWayOwn(char * buff)
 	int offset = 0;
 	const char * accountIdPtr = NULL;
 
-	offset = sprintf(buff,"/test/v1/owner/");
+	offset = sprintf(buff, URL_PRE_REGISTER);
 
 	status = GetAccountID(&accountIdPtr);
 	assert(status == SDK_SUCCESS);
@@ -238,12 +242,14 @@ static void modemReadCallback(uint8_t* buff, uint16_t buffSize)
 			s_lastJson = cJSON_Parse(buff);
 
 			cJsonString = cJSON_Print(s_lastJson);
-			LOG_DEBUG_INTERNAL("%s\r\n",cJsonString);
+            LOG_DEBUG_INTERNAL("%s\r\n",cJsonString);
+			printk("%s\r\n",cJsonString);
 			FreeJsonString(cJsonString);
 		}
 		else
 		{
 			LOG_DEBUG_INTERNAL("%s\r\n",buff);
+			printk("%s\r\n",buff);
 		}
 	}
 
@@ -255,6 +261,15 @@ static void modemReadCallback(uint8_t* buff, uint16_t buffSize)
 		}
 		k_event_post(&s_responseEvent, RESPONSE_EVENT_BIT_SET);
 	}
+    else if(true == s_anyResponse)
+    {
+		if((buffSize >= IMEI_LEN) && (buffSize < SIZE_OF_RESPONSE_PAYLOAD))
+		{	
+			sprintf(s_responseExtraPayload, "%s", buff);
+            s_anyResponse = false;
+		}
+		k_event_post(&s_responseEvent, RESPONSE_EVENT_BIT_SET);
+    }
 }
 
 static inline SDK_STAT modemResponseWait(char * waitWord, size_t wordSize, uint32_t timeToWait)
@@ -345,7 +360,7 @@ static SDK_STAT getConnectionAccessToken(char * accessConnectionToken)
 
 	const char* headers[] ={
 		HEADER_HOST HEADER_SEPERATE SHORT_URL,
-		HEADER_AUTHORIZATION HEADER_SEPERATE JWT_TOKEN
+		HEADER_AUTHORIZATION HEADER_SEPERATE API_SEC_KEY
 	};
 
 	uint16_t headersSize = sizeof(headers)/sizeof(headers[0]);
@@ -622,6 +637,11 @@ SDK_STAT NetworkInit()
 	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
+    if (SDK_SUCCESS != UpdateConfGatewayId())
+    {
+        printk("Failed setting imei-based id");
+    }
+
 	return SDK_SUCCESS;
 }
 
@@ -686,7 +706,7 @@ SDK_STAT ConnectToNetwork()
 	deviceIndex += sprintf((bodyDeviceCode + deviceIndex),BODY_REG_POST);
 
 	registerConnectionGateway(bodyUserCode);
-	getConnectionAccessAndRefreshToken(bodyDeviceCode);
+	getConnectionAccessAndRefreshToken(bodyDeviceCode); //refresh token is in s_refreshtoken after this
 
 	OsalFree(authorizationHeader);
 
@@ -1084,4 +1104,24 @@ SDK_STAT RegisterConnStateChangeCB(handleConnStateChangeCB cb, conn_handle handl
     s_receivedConnStateHandle = cb;
 
     return SDK_SUCCESS;
+}
+
+char *GetIMEI()
+{
+	AtCmndsParams cmndsParams = {0};
+    cmndsParams.atCgsn.getImei = 1;
+    SDK_STAT status;
+
+    s_anyResponse = true;
+    status = AtExecuteCmd(AT_CMD_CGSN);
+	__ASSERT((status == SDK_SUCCESS),"AtExecuteCmd internal fail");
+	modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD) + 1, MODEM_WAKE_TIMEOUT);
+    OsalSleep(200);
+
+    if (status != SDK_SUCCESS || s_anyResponse == true)
+    {
+        return NULL;
+    }
+
+    return s_responseExtraPayload;
 }

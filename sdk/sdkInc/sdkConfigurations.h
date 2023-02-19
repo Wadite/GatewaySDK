@@ -62,6 +62,13 @@ SDK_STAT SendConfigurationToServer();
 const char * GetConfigurationKeyName(eConfigurationParams confParm);
 
 /**
+ * @brief updates the gateway ID to be unique imei-based.
+ * 
+ * @return SDK_STAT 
+ */
+SDK_STAT UpdateConfGatewayId(void);
+
+/**
  * @brief Inline functions to get requested param from configurations
  * 
  * @param ConfigName constant pointer for getting requested config value.

@@ -17,6 +17,7 @@ typedef enum{
     AT_CMD_CTZU,
     AT_CMD_QCFG,
     AT_CMD_CGDCONT,
+    AT_CMD_CGSN,
     AT_CMD_CEREG,
     AT_CMD_COPS,
     AT_CMD_QCSQ,
@@ -41,6 +42,7 @@ typedef union {
     AtCtzuParams    atCtzuParams;
     AtQcfgParams    atQcfgParams;
     AtCgdcontParams atCgdcontParams;
+    AtCgsn          atCgsn;
     AtCereg         atCereg;
     AtQlts          atQlts;
     AtQping         atQping;

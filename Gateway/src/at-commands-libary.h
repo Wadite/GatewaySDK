@@ -79,6 +79,10 @@ typedef struct{
 }AtCgdcontParams;
 
 typedef struct{
+    int getImei;
+}AtCgsn;
+
+typedef struct{
     eNetworkRegistrationStatus status;
 }AtCereg;
 

@@ -10,6 +10,7 @@
 #include "mqttTopics.h"
 #include "sdkUtils.h"
 #include "serviceDiscovery.h"
+#include "network-api.h"
 
 #define DECIMAL_BASE                    (10)
 #define HEXADECIMAL_BASE                (16)
@@ -23,6 +24,7 @@
 #define MAX_INT_DIGITS                  (16)
 #define MAX_DOUBLE_DIGITS               (32)
 #define MAX_CONF_PARAM_SIZE             (16)
+#define MAX_ID_LEN                      (18)
 
 
 #define CONFIG_STRING_DEBUG             "debug"
@@ -37,12 +39,12 @@
 #define DEFAULT_CONF_LOCAL_TRACE        CONFIG_STRING_TRUE
 #define DEFAULT_CONF_NUMBER_OF_LOGS     "5"
 #define DEFAULT_CONF_UUID               "0xfdaf"
-#define DEFAULT_CONF_ACCOUNT_ID         "102115004740"
+#define DEFAULT_CONF_ACCOUNT_ID         "959266658936"/*"102115004740"*/
 #define DEFAULT_CONF_GATEWAY_TYPE       "other"
-#define DEFAULT_CONF_GATEWAY_ID         "GWtandem"
+#define DEFAULT_CONF_GATEWAY_ID         "GWDEADBEEF8888"
 #define DEFAULT_CONF_LOCATION_SUPPORT   CONFIG_STRING_TRUE
 #define DEFAULT_CONF_LOCATION           "0.0"
-#define DEFAULT_CONF_MQTT_SERVER        "mqtt-shared-v2-dev.aws.wiliot.com"
+#define DEFAULT_CONF_MQTT_SERVER        /*test:"mqtt-shared-v2-dev.aws.wiliot.com" prod:*/"mqttv2.wiliot.com"
 #define DEFAULT_API_VERSION             "200"
 
 #define CONFIG_PARAM_JSON_STRING        "gatewayConf"
@@ -423,6 +425,28 @@ static char * readFromStorageAssist(eConfigurationParams confParam)
     }
 
     return tempStorageAllocation;
+}
+
+SDK_STAT UpdateConfGatewayId(void)
+{
+    char *imei = GetIMEI();
+    char *GatewayId = NULL;
+
+    if (imei == NULL)
+    {
+        printk("GetIMEI failed, using default GW ID\n");
+        return SDK_FAILURE;
+    }
+    printk("###########IMEI: |%s|\n", imei);
+
+    GatewayId = OsalMallocFromMemoryPool(MAX_ID_LEN + 1, s_configurationsMemoryPool);
+    assert(GatewayId);
+    sprintf(GatewayId, "GW%s", imei);
+
+    OsalFreeFromMemoryPool(g_ConfigurationStruct.gatewayId, s_configurationsMemoryPool);
+    g_ConfigurationStruct.gatewayId = GatewayId;
+
+    return SDK_SUCCESS;
 }
 
 SDK_STAT ConfigurationInit()

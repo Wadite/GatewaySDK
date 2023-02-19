@@ -84,8 +84,16 @@ static UpLinkMsg* createUpLinkMsg(uint32_t timestamp,uint32_t sequenceId, int32_
 
 static inline char * createUpLinkPayload(const void* data, uint32_t length)
 {
-    assert(data && (length > 0));
-    assert(SIZE_OF_PAYLOAD(length) == SIZE_OF_ADV_PAYLOAD);
+    if (!data || (length == 0))
+    {
+        printk("ignored illegal packet");
+        return NULL;
+    }
+    if ((SIZE_OF_PAYLOAD(length) != SIZE_OF_ADV_PAYLOAD))
+    {
+        printk("ignored illegal packet length");
+        return NULL;
+    }
 
     char * payload = (char*)OsalMallocFromMemoryPool(SIZE_OF_ADV_PAYLOAD, s_upLinkMemPool);
     if(!payload)
