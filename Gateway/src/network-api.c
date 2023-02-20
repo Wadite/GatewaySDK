@@ -27,7 +27,7 @@
 #define INT_TO_STR(x) 						STR_HELPER(x)
 
 #define SIZE_OF_COMPARE_STRING				(128)
-#define MODEM_WAKE_TIMEOUT					(30000)
+#define MODEM_WAKE_TIMEOUT					(60000)/*30000*/
 #define AT_CMD_TIMEOUT						(1000)
 #define RESPONSE_EVENT_BIT_SET				(0x001)
 
@@ -53,6 +53,7 @@
 
 #define RESPONSE_BUFFER_SIZE				(50)
 #define API_SEC_KEY						    "Yjk2MjAyY2ItMDcyZi00NzRiLThmNjMtOTMyOTA5N2IxOTg1OnhJNUhHSC1KcXZxNGN6NzVsZFYwUDY4Ul8xXzg3Q1lFRGl3RVJMcFJ6dlU="
+/*wiliot prod"MTRlNzAwMjItZTNiNi00ODZjLThkOTQtM2ZmZTk3MTEyM2NjOlFxMXR3THlvRzNSbkRiTm51ZVV3Uk9BeElSUlVxa3pJV0RrLW55NmZLQ3c="*/
 /*tandem test:"NTUxNTU1YzAtZTUwNS00MDUwLTlmMzItYTllOTM0MjIyYTQzOm9CUFVITERrSzFZMDNQSEU1Q3Q5QWxJWHk2QzZFMU51aGZBM2M5aGNtazA="*/
 #define CONNECTION_TOKEN_TYPE				"Bearer"
 #define HTTP_SEND_RECEIVE_TIMEOUT			(80)
@@ -334,13 +335,16 @@ static SDK_STAT sentAndReadHttpMsg(AtCmndsParams cmndsParams, eAtCmds atCmd, cha
 	status = AtWriteCmd(atCmd, &cmndsParams);
     __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
 	status = modemResponseWait(MODEM_HTTP_URL_VERIFY_WORD, strlen(MODEM_HTTP_URL_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
+    printk("qhttppost %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 	ModemSend(httpMsgString, strlen(httpMsgString));
 	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
+    printk("httpmsgstring %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 	status = atEnumToResponseString(atCmd, responseBuffer, RESPONSE_BUFFER_SIZE);
 	__ASSERT((status == SDK_SUCCESS),"atEnumToResponseString internal fail");
 	status = modemResponseWait(responseBuffer, strlen(responseBuffer), MODEM_WAKE_TIMEOUT);
+    printk("responsegetting %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
 	status = AtWriteCmd(AT_CMD_QHTTPREAD, &cmndsParams);
@@ -348,6 +352,7 @@ static SDK_STAT sentAndReadHttpMsg(AtCmndsParams cmndsParams, eAtCmds atCmd, cha
 	status = atEnumToResponseString(AT_CMD_QHTTPREAD, responseBuffer, RESPONSE_BUFFER_SIZE);
 	__ASSERT((status == SDK_SUCCESS),"atEnumToResponseString internal fail");
 	status = modemResponseWait(responseBuffer, strlen(responseBuffer), MODEM_WAKE_TIMEOUT);
+    printk("qhttpread %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
 	return SDK_SUCCESS;
@@ -680,18 +685,22 @@ SDK_STAT ConnectToNetwork()
 	authorizationHeader = (char*)OsalCalloc(sizeof(HEADER_AUTHORIZATION) + sizeof(HEADER_SEPERATE) + sizeof(CONNECTION_TOKEN_TYPE) + SIZE_OF_ACCESS_CONNECTION_TOKEN + 1);
 	if(!authorizationHeader)
 	{
+        printk("Allocation failed!\n");
 		return SDK_FAILURE;
 	}
 
 	status = setConnectionUrl();
+    printk("setconnectionUrl %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
 	authIndex += sprintf((authorizationHeader + authIndex),HEADER_AUTHORIZATION HEADER_SEPERATE CONNECTION_TOKEN_TYPE);
 	authIndex += sprintf((authorizationHeader + authIndex)," ");
 
 	status = getConnectionAccessToken(authorizationHeader + authIndex);
+    printk("getconnectionaccesstoken %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 	status = setConnectionGateway(authorizationHeader);
+    printk("setconnectiongateway %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
 	userIndex += sprintf((bodyUserCode + userIndex),"%s",BODY_REG_USR_CODE_PRE(s_addressStringBuffer));
@@ -1014,6 +1023,7 @@ SDK_STAT GetRefreshToken(Token* refreshToken)
 
 	if(!refreshToken)
 	{
+        printk("invalid refreshtoken parameter\n");
 		return SDK_INVALID_PARAMS;
 	}
 
@@ -1023,6 +1033,7 @@ SDK_STAT GetRefreshToken(Token* refreshToken)
 		status = readRefreshTokenFromFlashToStatic(compareBuff, sizeof(compareBuff));
 		if(status != SDK_SUCCESS)
 		{
+            printk("readrefreshtokenfromflashtostatic %d\n", status);
 			return status;
 		}
 	}

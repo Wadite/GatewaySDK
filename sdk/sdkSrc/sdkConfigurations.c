@@ -23,8 +23,8 @@
 #define MAX_UINT16_HEX_DIGITS           (8)
 #define MAX_INT_DIGITS                  (16)
 #define MAX_DOUBLE_DIGITS               (32)
-#define MAX_CONF_PARAM_SIZE             (16)
-#define MAX_ID_LEN                      (18)
+#define MAX_CONF_PARAM_SIZE             (20)
+#define MAX_ID_LEN                      (32) //TODO verify sizes
 
 
 #define CONFIG_STRING_DEBUG             "debug"
@@ -39,7 +39,7 @@
 #define DEFAULT_CONF_LOCAL_TRACE        CONFIG_STRING_TRUE
 #define DEFAULT_CONF_NUMBER_OF_LOGS     "5"
 #define DEFAULT_CONF_UUID               "0xfdaf"
-#define DEFAULT_CONF_ACCOUNT_ID         "959266658936"/*"102115004740"*/
+#define DEFAULT_CONF_ACCOUNT_ID         "959266658936"/*tandem test:"102115004740"*/
 #define DEFAULT_CONF_GATEWAY_TYPE       "other"
 #define DEFAULT_CONF_GATEWAY_ID         "GWDEADBEEF8888"
 #define DEFAULT_CONF_LOCATION_SUPPORT   CONFIG_STRING_TRUE
@@ -427,26 +427,49 @@ static char * readFromStorageAssist(eConfigurationParams confParam)
     return tempStorageAllocation;
 }
 
+// not seeing bridges with updateconfgatewayid called.
 SDK_STAT UpdateConfGatewayId(void)
 {
-    char *imei = GetIMEI();
-    char *GatewayId = NULL;
+    SDK_STAT status = SDK_SUCCESS;
+    cJSON *tempJson = NULL;
+    char *gatewayId = NULL;
+    char *imei = NULL;
 
-    if (imei == NULL)
+    imei = GetIMEI();
+    if (NULL == imei)
     {
-        printk("GetIMEI failed, using default GW ID\n");
-        return SDK_FAILURE;
+        status = SDK_FAILURE;
+        goto clean_up;
     }
-    printk("###########IMEI: |%s|\n", imei);
 
-    GatewayId = OsalMallocFromMemoryPool(MAX_ID_LEN + 1, s_configurationsMemoryPool);
-    assert(GatewayId);
-    sprintf(GatewayId, "GW%s", imei);
+    gatewayId = OsalMallocFromMemoryPool(MAX_ID_LEN, s_configurationsMemoryPool);
+    if (NULL == gatewayId)
+    {
+        status = SDK_FAILURE;
+        goto clean_up;
+    }
+    sprintf(gatewayId, "LTE%s", imei);
 
-    OsalFreeFromMemoryPool(g_ConfigurationStruct.gatewayId, s_configurationsMemoryPool);
-    g_ConfigurationStruct.gatewayId = GatewayId;
+    tempJson = cJSON_CreateString(gatewayId);
+    if (NULL == tempJson)
+    {
+        status = SDK_FAILURE;
+        goto clean_up;
+    }
 
-    return SDK_SUCCESS;
+    setGatewayId(tempJson);
+
+clean_up:
+    if (tempJson)
+    {
+        cJSON_free(tempJson);
+    }
+    if (gatewayId)
+    {
+        OsalFreeFromMemoryPool(gatewayId, s_configurationsMemoryPool);
+    }
+
+    return status;
 }
 
 SDK_STAT ConfigurationInit()
@@ -557,13 +580,10 @@ bool isConfigurationTableSet()
 static void addLocationToJson(cJSON* root)
 {
     double loc = 0;
-    char locationStr[MAX_CONF_PARAM_SIZE] = {0};
     GetLatitude(&loc);
-    sprintf(locationStr, "%lf", loc);
-    cJSON_AddStringToObject(root, s_confParamsTable[CONF_PARAM_LATITUDE], locationStr);
+    cJSON_AddNumberToObject(root, s_confParamsTable[CONF_PARAM_LATITUDE], loc);
     GetLongitude(&loc);
-    sprintf(locationStr, "%lf", loc);
-    cJSON_AddStringToObject(root, s_confParamsTable[CONF_PARAM_LONGITUDE], locationStr);
+    cJSON_AddNumberToObject(root, s_confParamsTable[CONF_PARAM_LONGITUDE], loc);
 }
 
 static const char * getConfigurationJsonString()
@@ -586,6 +606,9 @@ static const char * getConfigurationJsonString()
     cJSON *configPart = cJSON_CreateObject();
     //adding api version twice as request    
     cJSON_AddStringToObject(configPart, s_confParamsTable[CONF_PARAM_API_VERSION], apiVersion);
+
+    cJSON_AddStringToObject(configPart, "interfaceChipSwVersion", "3.11.36");   // for config edit on web
+    cJSON_AddStringToObject(configPart, "bleChipSwVersion", "3.11.40");         // for config edit on web
 
 	const char * loggerUploadModePtr = NULL;
 	GetLoggerUploadMode(&loggerUploadModePtr);
@@ -644,6 +667,7 @@ SDK_STAT SendConfigurationToServer()
     const char * confStr = getConfigurationJsonString();
     const char * topic = GetMqttStatusTopic();
 
+    // printk("#####json sent:\n%s\n", confStr);
 	status = NetworkMqttMsgSend(topic, (char*)confStr, strlen(confStr));
 	FreeJsonString((char*)confStr);
 

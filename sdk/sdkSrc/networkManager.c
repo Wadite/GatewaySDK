@@ -90,12 +90,15 @@ static SDK_STAT httpFlow(Token * refreshToken)
     if(status == SDK_NOT_FOUND)
     {
         status = ConnectToNetwork();
+        printk("connecttonetwork %d\n", status);
         RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
         status = GetRefreshToken(refreshToken);
+        printk("getrefreshtoken %d\n", status);
         RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
         status = UpdateRefreshToken(*refreshToken);
+        printk("updaterefreshtoken %d\n", status);
         RETURN_ON_FAIL(status, SDK_SUCCESS, status);
     }
 
@@ -207,13 +210,12 @@ static SDK_STAT fullConnectionInit()
     SDK_STAT status = SDK_SUCCESS;
     Token refreshToken = NULL;
 
-    status = NetworkInit();
-    RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
     status = httpFlow(&refreshToken);
+    printk("httpflow %d\n", status);
     RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
     status = mqttFlow(refreshToken);
+    printk("mqttflow %d\n", status);
     RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
     return SDK_SUCCESS;
