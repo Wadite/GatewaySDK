@@ -28,6 +28,8 @@
 #define ACCESS_TOKEN_REFRESH_WINDOW_MS           (300000)
 #define RECONNECTION_ATTEMPTS                    (5)
 
+#define TIME_TO_LOG                              (1000)
+
 OSAL_CREATE_POOL(s_networkManagerMemPool, SIZE_OF_NETWORK_MANAGER_MEMORY);
 
 typedef enum{
@@ -110,31 +112,42 @@ static SDK_STAT mqttFlow(Token refreshToken)
     SDK_STAT status = SDK_SUCCESS;
 
     status = localAccessTokenUpdate(refreshToken);
+    printk("localaccesstokenupdate %d\n", status);
     RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
     s_connHandle = ConnectToServer();
     if(!s_connHandle)
     {
+        printk("connecttoserver failed\n");
         return SDK_FAILURE;
     }
 
     return SDK_SUCCESS;
 }
 
+
 static SDK_STAT reconnectToMqtt()
 {
     SDK_STAT status = SDK_SUCCESS;
-    Token * refreshToken = NULL;
+    Token refreshToken = NULL;
 
     if(!IsNetworkAvailable())
     {
-        return SDK_INVALID_STATE;
+        printk("LTE is offline\n");
+        status = ReconnectToNetwork();
+        if (SDK_SUCCESS != status)
+        {
+            return SDK_INVALID_STATE;
+        }
+        printk("LTE reconnected\n");
     }
 
-    status = GetRefreshToken(refreshToken);
+    status = GetRefreshToken(&refreshToken);
+    printk("getrefreshtoken in reconnecttomqtt %d\n", status);
     RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
-    status = mqttFlow(*refreshToken);
+    status = mqttFlow(refreshToken);
+    printk("mqttflow in reconnecttomqtt %d\n", status);
     RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
     return SDK_SUCCESS;
@@ -151,17 +164,17 @@ static void reconnectionFlow()
     while((status != SDK_SUCCESS) && attempts < RECONNECTION_ATTEMPTS)
     {
         attempts++;
-        status = ReconnectToNetwork();
-
-        if(status == SDK_SUCCESS)
-        {
-            status = reconnectToMqtt();
-        }
+        status = reconnectToMqtt();
     }
 
     if(attempts == RECONNECTION_ATTEMPTS && status != SDK_SUCCESS)
     {
+        OsalSleep(TIME_TO_LOG);
         OsalSystemReset();
+    }
+    else
+    {
+        printk("Reconnected to mqtt successfully\n");
     }
 
     s_isNetworkConnected = true;
@@ -194,6 +207,7 @@ static void networkManagerThreadFunc()
         switch(*connState)
         {
             case CONN_STATE_DISCONNECTION:
+                printk("MQTT disconnected\n");
                 reconnectionFlow();
                 break;
 
