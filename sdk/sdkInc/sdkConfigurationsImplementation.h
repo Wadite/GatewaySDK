@@ -25,7 +25,7 @@ typedef struct{
 
 bool isConfigurationTableSet();
 
-inline SDK_STAT GetLoggerUploadMode(const char** loggerUploadModePtr)
+static inline SDK_STAT GetLoggerUploadMode(const char** loggerUploadModePtr)
 {   
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
@@ -49,7 +49,7 @@ inline SDK_STAT GetLoggerUploadMode(const char** loggerUploadModePtr)
     return SDK_SUCCESS;
 }
 
-inline SDK_STAT GetLoggerSeverity(eLogTypes * loggerSeverity)
+static inline SDK_STAT GetLoggerSeverity(eLogTypes * loggerSeverity)
 {
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
@@ -73,7 +73,7 @@ inline SDK_STAT GetLoggerSeverity(eLogTypes * loggerSeverity)
     return SDK_SUCCESS;
 }
 
-inline SDK_STAT GetLoggerLocalTraceConfig(bool * loggerLocalTraceConfig)
+static inline SDK_STAT GetLoggerLocalTraceConfig(bool * loggerLocalTraceConfig)
 {
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
@@ -92,7 +92,7 @@ inline SDK_STAT GetLoggerLocalTraceConfig(bool * loggerLocalTraceConfig)
     return SDK_SUCCESS;
 }
 
-inline SDK_STAT GetLoggerNumberOfLogs(int * loggerNumberOfLogs)
+static inline SDK_STAT GetLoggerNumberOfLogs(int * loggerNumberOfLogs)
 {
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
@@ -116,7 +116,7 @@ inline SDK_STAT GetLoggerNumberOfLogs(int * loggerNumberOfLogs)
     return SDK_SUCCESS;
 }
 
-inline SDK_STAT GetUuidToFilter(uint16_t * uuidToFilter)
+static inline SDK_STAT GetUuidToFilter(uint16_t * uuidToFilter)
 {   
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
@@ -140,7 +140,7 @@ inline SDK_STAT GetUuidToFilter(uint16_t * uuidToFilter)
     return SDK_SUCCESS;
 }
 
-inline SDK_STAT GetAccountID(const char** accountId)
+static inline SDK_STAT GetAccountID(const char** accountId)
 {
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
@@ -164,7 +164,7 @@ inline SDK_STAT GetAccountID(const char** accountId)
     return SDK_SUCCESS;
 }
 
-inline SDK_STAT GetGatewayType(const char** gatewayType)
+static inline SDK_STAT GetGatewayType(const char** gatewayType)
 {   
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
@@ -188,7 +188,7 @@ inline SDK_STAT GetGatewayType(const char** gatewayType)
     return SDK_SUCCESS;
 }
 
-inline SDK_STAT GetGatewayId(const char** gatewayId)
+static inline SDK_STAT GetGatewayId(const char** gatewayId)
 {   
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
@@ -212,7 +212,7 @@ inline SDK_STAT GetGatewayId(const char** gatewayId)
     return SDK_SUCCESS;
 }
 
-inline SDK_STAT GetIsLocationSupported(bool* isLocationSupported)
+static inline SDK_STAT GetIsLocationSupported(bool* isLocationSupported)
 {   
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
@@ -231,7 +231,7 @@ inline SDK_STAT GetIsLocationSupported(bool* isLocationSupported)
     return SDK_SUCCESS;
 }
 
-inline SDK_STAT GetLatitude(double * lat)
+static inline SDK_STAT GetLatitude(double * lat)
 {   
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
@@ -255,7 +255,7 @@ inline SDK_STAT GetLatitude(double * lat)
     return SDK_SUCCESS;
 }
 
-inline SDK_STAT GetLongitude(double* lng)
+static inline SDK_STAT GetLongitude(double* lng)
 {
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
@@ -279,7 +279,7 @@ inline SDK_STAT GetLongitude(double* lng)
     return SDK_SUCCESS;
 }
 
-inline SDK_STAT GetMqttServer(const char ** mqttServer)
+static inline SDK_STAT GetMqttServer(const char ** mqttServer)
 {
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;
@@ -303,7 +303,7 @@ inline SDK_STAT GetMqttServer(const char ** mqttServer)
     return SDK_SUCCESS;
 }
 
-inline SDK_STAT GetApiVersion(const char ** apiVersion)
+static inline SDK_STAT GetApiVersion(const char ** apiVersion)
 {
     extern ConfigurationStruct g_ConfigurationStruct;
     const ConfigurationStruct * confStructPtr = &g_ConfigurationStruct;

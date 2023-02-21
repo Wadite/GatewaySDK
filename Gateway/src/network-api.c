@@ -27,7 +27,7 @@
 #define INT_TO_STR(x) 						STR_HELPER(x)
 
 #define SIZE_OF_COMPARE_STRING				(128)
-#define MODEM_WAKE_TIMEOUT					(30000)
+#define MODEM_WAKE_TIMEOUT					(40000)/*30000*/
 #define AT_CMD_TIMEOUT						(1000)
 #define RESPONSE_EVENT_BIT_SET				(0x001)
 
@@ -45,13 +45,16 @@
 #define NETWORK_AVAILABLE_CONTEX_ID 		(1)
 #define ADDRESS_TO_PING 					"www.google.com"
 #define MODEM_RESPONSE_VERIFY_WORD			"OK"
+#define IMEI_LEN                            (15)
 #define MODEM_HTTP_URL_VERIFY_WORD			"CONNECT"
 #define MODEM_READY_VERITY_WORD				"APP RDY"
 #define MODEM_CEREG_SUCCESS_PAYLOAD			" 1,1"
 #define TIME_TO_RETRY_CEREG_PAYLOAD			(10000)
 
 #define RESPONSE_BUFFER_SIZE				(50)
-#define JWT_TOKEN							"NTUxNTU1YzAtZTUwNS00MDUwLTlmMzItYTllOTM0MjIyYTQzOm9CUFVITERrSzFZMDNQSEU1Q3Q5QWxJWHk2QzZFMU51aGZBM2M5aGNtazA="
+#define API_SEC_KEY						    "Yjk2MjAyY2ItMDcyZi00NzRiLThmNjMtOTMyOTA5N2IxOTg1OnhJNUhHSC1KcXZxNGN6NzVsZFYwUDY4Ul8xXzg3Q1lFRGl3RVJMcFJ6dlU="
+/*wiliot prod"MTRlNzAwMjItZTNiNi00ODZjLThkOTQtM2ZmZTk3MTEyM2NjOlFxMXR3THlvRzNSbkRiTm51ZVV3Uk9BeElSUlVxa3pJV0RrLW55NmZLQ3c="*/
+/*tandem test:"NTUxNTU1YzAtZTUwNS00MDUwLTlmMzItYTllOTM0MjIyYTQzOm9CUFVITERrSzFZMDNQSEU1Q3Q5QWxJWHk2QzZFMU51aGZBM2M5aGNtazA="*/
 #define CONNECTION_TOKEN_TYPE				"Bearer"
 #define HTTP_SEND_RECEIVE_TIMEOUT			(80)
 #define SIZE_OF_ACCESS_CONNECTION_TOKEN		(1251)
@@ -76,12 +79,13 @@
 #define SHORT_URL 							"api.wiliot.com"
 #define CONNECTION_URL						"https://"SHORT_URL
 #define TYPE_APP_JSON						"application/json"
-#define URL_EXT_ACCESS_TOKEN				"/test/v1/auth/token/api"
+#define URL_EXT_ACCESS_TOKEN				/*"/test*/"/v1/auth/token/api"
 #define URL_EXT_GATEWAY_OWN(buff)			getUrlExtGateWayOwn((buff))
-#define URL_EXT_DEVICE_AUTH					"/test/v1/gateway/device-authorize"
-#define URL_EXT_REG_GATEWAY					"/test/v2/gateway/registry"
-#define URL_EXT_GET_TOKENS					"/test/v2/gateway/token"
-#define URL_EXT_UPDATE_ACCESS				"/test/v1/gateway/refresh?refresh_token="
+#define URL_EXT_DEVICE_AUTH					/*"/test*/"/v1/gateway/device-authorize"
+#define URL_EXT_REG_GATEWAY					/*"/test*/"/v2/gateway/registry"
+#define URL_EXT_GET_TOKENS					/*"/test*/"/v2/gateway/token"
+#define URL_EXT_UPDATE_ACCESS				/*"/test*/"/v1/gateway/refresh?refresh_token="
+#define URL_PRE_REGISTER                    /*"/test*/"/v1/owner/" 
 
 #define MAX_BODY_SIZE_DIGITS_NUM			(5)
 #define BODY_GATEWAY(buff)					getBodyGateWay((buff))
@@ -129,6 +133,7 @@ static char s_addressStringBuffer[SIZE_OF_ADDRESS_BUFFER] = {0};
 NetMQTTPacketCB s_receivedMQTTPacketHandle = 0;
 handleConnStateChangeCB s_receivedConnStateHandle = 0;
 static conn_handle s_connHandle = 0;
+static bool s_anyResponse = false;
 
 static char * getUrlExtGateWayOwn(char * buff) 
 {
@@ -136,7 +141,7 @@ static char * getUrlExtGateWayOwn(char * buff)
 	int offset = 0;
 	const char * accountIdPtr = NULL;
 
-	offset = sprintf(buff,"/test/v1/owner/");
+	offset = sprintf(buff, URL_PRE_REGISTER);
 
 	status = GetAccountID(&accountIdPtr);
 	assert(status == SDK_SUCCESS);
@@ -238,12 +243,14 @@ static void modemReadCallback(uint8_t* buff, uint16_t buffSize)
 			s_lastJson = cJSON_Parse(buff);
 
 			cJsonString = cJSON_Print(s_lastJson);
-			LOG_DEBUG_INTERNAL("%s\r\n",cJsonString);
+            LOG_DEBUG_INTERNAL("%s\r\n",cJsonString);
+			printk("%s\r\n",cJsonString);
 			FreeJsonString(cJsonString);
 		}
 		else
 		{
 			LOG_DEBUG_INTERNAL("%s\r\n",buff);
+			printk("%s\r\n",buff);
 		}
 	}
 
@@ -255,6 +262,15 @@ static void modemReadCallback(uint8_t* buff, uint16_t buffSize)
 		}
 		k_event_post(&s_responseEvent, RESPONSE_EVENT_BIT_SET);
 	}
+    else if(true == s_anyResponse)
+    {
+		if((buffSize >= IMEI_LEN) && (buffSize < SIZE_OF_RESPONSE_PAYLOAD))
+		{	
+			sprintf(s_responseExtraPayload, "%s", buff);
+            s_anyResponse = false;
+		}
+		k_event_post(&s_responseEvent, RESPONSE_EVENT_BIT_SET);
+    }
 }
 
 static inline SDK_STAT modemResponseWait(char * waitWord, size_t wordSize, uint32_t timeToWait)
@@ -319,13 +335,23 @@ static SDK_STAT sentAndReadHttpMsg(AtCmndsParams cmndsParams, eAtCmds atCmd, cha
 	status = AtWriteCmd(atCmd, &cmndsParams);
     __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
 	status = modemResponseWait(MODEM_HTTP_URL_VERIFY_WORD, strlen(MODEM_HTTP_URL_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
+    if (status != SDK_SUCCESS)
+    {
+        printk("qhttp put/post %d\n", status);
+        OsalSleep(MODEM_WAKE_TIMEOUT);
+        status = AtWriteCmd(atCmd, &cmndsParams);
+        status = modemResponseWait(MODEM_HTTP_URL_VERIFY_WORD, strlen(MODEM_HTTP_URL_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
+        printk("qhttp put/post 2nd attempt %d\n", status);
+    }
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 	ModemSend(httpMsgString, strlen(httpMsgString));
 	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
+    printk("httpmsgstring %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 	status = atEnumToResponseString(atCmd, responseBuffer, RESPONSE_BUFFER_SIZE);
 	__ASSERT((status == SDK_SUCCESS),"atEnumToResponseString internal fail");
 	status = modemResponseWait(responseBuffer, strlen(responseBuffer), MODEM_WAKE_TIMEOUT);
+    printk("responsegetting %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
 	status = AtWriteCmd(AT_CMD_QHTTPREAD, &cmndsParams);
@@ -333,6 +359,7 @@ static SDK_STAT sentAndReadHttpMsg(AtCmndsParams cmndsParams, eAtCmds atCmd, cha
 	status = atEnumToResponseString(AT_CMD_QHTTPREAD, responseBuffer, RESPONSE_BUFFER_SIZE);
 	__ASSERT((status == SDK_SUCCESS),"atEnumToResponseString internal fail");
 	status = modemResponseWait(responseBuffer, strlen(responseBuffer), MODEM_WAKE_TIMEOUT);
+    printk("qhttpread %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
 	return SDK_SUCCESS;
@@ -345,7 +372,7 @@ static SDK_STAT getConnectionAccessToken(char * accessConnectionToken)
 
 	const char* headers[] ={
 		HEADER_HOST HEADER_SEPERATE SHORT_URL,
-		HEADER_AUTHORIZATION HEADER_SEPERATE JWT_TOKEN
+		HEADER_AUTHORIZATION HEADER_SEPERATE API_SEC_KEY
 	};
 
 	uint16_t headersSize = sizeof(headers)/sizeof(headers[0]);
@@ -622,6 +649,11 @@ SDK_STAT NetworkInit()
 	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
+    if (SDK_SUCCESS != UpdateConfGatewayId())
+    {
+        printk("Failed setting imei-based id");
+    }
+
 	return SDK_SUCCESS;
 }
 
@@ -660,18 +692,22 @@ SDK_STAT ConnectToNetwork()
 	authorizationHeader = (char*)OsalCalloc(sizeof(HEADER_AUTHORIZATION) + sizeof(HEADER_SEPERATE) + sizeof(CONNECTION_TOKEN_TYPE) + SIZE_OF_ACCESS_CONNECTION_TOKEN + 1);
 	if(!authorizationHeader)
 	{
+        printk("Allocation failed!\n");
 		return SDK_FAILURE;
 	}
 
 	status = setConnectionUrl();
+    printk("setconnectionUrl %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
 	authIndex += sprintf((authorizationHeader + authIndex),HEADER_AUTHORIZATION HEADER_SEPERATE CONNECTION_TOKEN_TYPE);
 	authIndex += sprintf((authorizationHeader + authIndex)," ");
 
 	status = getConnectionAccessToken(authorizationHeader + authIndex);
+    printk("getconnectionaccesstoken %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 	status = setConnectionGateway(authorizationHeader);
+    printk("setconnectiongateway %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
 	userIndex += sprintf((bodyUserCode + userIndex),"%s",BODY_REG_USR_CODE_PRE(s_addressStringBuffer));
@@ -685,12 +721,17 @@ SDK_STAT ConnectToNetwork()
 	userIndex += sprintf((bodyUserCode + userIndex),BODY_REG_POST);
 	deviceIndex += sprintf((bodyDeviceCode + deviceIndex),BODY_REG_POST);
 
-	registerConnectionGateway(bodyUserCode);
-	getConnectionAccessAndRefreshToken(bodyDeviceCode);
+	status = registerConnectionGateway(bodyUserCode);
+    if (status != SDK_SUCCESS)
+    {
+        OsalFree(authorizationHeader);
+        return status;
+    }
+	status = getConnectionAccessAndRefreshToken(bodyDeviceCode); //refresh token is in s_refreshtoken after this
 
 	OsalFree(authorizationHeader);
 
-	return SDK_SUCCESS;
+	return status;
 }
 
 SDK_STAT UpdateAccessToken(Token refreshToken, Token * accessToken, uint32_t * accessTokenExpiry)
@@ -777,10 +818,13 @@ static SDK_STAT openSSLLink()
 	cmndsParams.atQsslopen.accessMode = MQTT_ACCESS_BUFFER_ACCESS;
 
 	status = AtWriteCmd(AT_CMD_QSSLOPEN, &cmndsParams);
+    printk("qsslopen in openssllink %d\n", status);
     __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
 	status = atEnumToResponseString(AT_CMD_QSSLOPEN, responseBuffer, RESPONSE_BUFFER_SIZE);
+    printk("atenumtoresponsestring in openssllink %d\n", status);
 	__ASSERT((status == SDK_SUCCESS),"atEnumToResponseString internal fail");
 	status = modemResponseWait(responseBuffer, strlen(responseBuffer), MODEM_WAKE_TIMEOUT);	
+    printk("responsebuffer in openssllink %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
 	return SDK_SUCCESS;
@@ -866,12 +910,14 @@ SDK_STAT SubscribeToTopic(char * topic)
 	status = sendSSLPacket(MQTT_CLIENT_IDX, len);
 	if(status != SDK_SUCCESS)
 	{
+        printk("sendSSLPacket %d", status);
 		return status;
 	}
 
 	status = modemResponseWait((char*)errCode, sizeof(errCode), MODEM_WAKE_TIMEOUT);
 	if(status != SDK_SUCCESS)
 	{
+        printk("modemresponsewait errCode %d", status);
 		return status;
 	}
 
@@ -886,6 +932,7 @@ conn_handle ConnectToServer()
 	s_connHandle = (conn_handle)CONNECTION_HANDLE;
 
 	status = openSSLLink();
+    printk("openssllink %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, NULL);
 
 	cmndsParams.atQiswtmd.clientId = MQTT_CLIENT_IDX;
@@ -994,6 +1041,7 @@ SDK_STAT GetRefreshToken(Token* refreshToken)
 
 	if(!refreshToken)
 	{
+        printk("invalid refreshtoken parameter\n");
 		return SDK_INVALID_PARAMS;
 	}
 
@@ -1003,6 +1051,7 @@ SDK_STAT GetRefreshToken(Token* refreshToken)
 		status = readRefreshTokenFromFlashToStatic(compareBuff, sizeof(compareBuff));
 		if(status != SDK_SUCCESS)
 		{
+            printk("readrefreshtokenfromflashtostatic %d\n", status);
 			return status;
 		}
 	}
@@ -1069,9 +1118,50 @@ SDK_STAT UpdateRefreshToken(Token refreshToken)
 
 SDK_STAT ReconnectToNetwork()
 {
-	OsalSystemReset();
+    SDK_STAT status = SDK_SUCCESS;
+	char responseBuffer[RESPONSE_BUFFER_SIZE] = {0};
+    AtCmndsParams cmndsParams = {0};
 
-	return SDK_SUCCESS;
+	cmndsParams.atCereg.status = NETWORK_REGISTRATION_ENABLE;
+	status = AtWriteCmd(AT_CMD_CEREG, &cmndsParams);
+    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
+	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
+	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+
+	while(true)
+	{
+		status = AtReadCmd(AT_CMD_CEREG);
+		__ASSERT((status == SDK_SUCCESS),"AtReadCmd internal fail");
+		status = atEnumToResponseString(AT_CMD_CEREG, responseBuffer, RESPONSE_BUFFER_SIZE);
+		__ASSERT((status == SDK_SUCCESS),"atEnumToResponseString internal fail");
+		status = modemResponseWait(responseBuffer, strlen(responseBuffer), MODEM_WAKE_TIMEOUT);
+		RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+
+		if(strcmp(s_responseExtraPayload, MODEM_CEREG_SUCCESS_PAYLOAD) == 0)
+		{
+			break;
+		}
+
+		OsalSleep(TIME_TO_RETRY_CEREG_PAYLOAD);
+	}
+
+	status = AtReadCmd(AT_CMD_COPS);
+    __ASSERT((status == SDK_SUCCESS),"AtReadCmd internal fail");
+	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
+	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+
+	status = AtExecuteCmd(AT_CMD_QCSQ);
+    __ASSERT((status == SDK_SUCCESS),"AtExecuteCmd internal fail");
+	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
+	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+
+	cmndsParams.atQlts.mode = QUERY_THE_CURRENT_LOCAL_TIME;
+	status = AtWriteCmd(AT_CMD_QLTS, &cmndsParams);
+    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
+	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
+	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+
+    return SDK_SUCCESS;
 }
 
 SDK_STAT RegisterConnStateChangeCB(handleConnStateChangeCB cb, conn_handle handle)
@@ -1084,4 +1174,24 @@ SDK_STAT RegisterConnStateChangeCB(handleConnStateChangeCB cb, conn_handle handl
     s_receivedConnStateHandle = cb;
 
     return SDK_SUCCESS;
+}
+
+char *GetIMEI()
+{
+	AtCmndsParams cmndsParams = {0};
+    cmndsParams.atCgsn.getImei = 1;
+    SDK_STAT status;
+
+    s_anyResponse = true;
+    status = AtExecuteCmd(AT_CMD_CGSN);
+	__ASSERT((status == SDK_SUCCESS),"AtExecuteCmd internal fail");
+	modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD) + 1, MODEM_WAKE_TIMEOUT);
+    OsalSleep(200);
+
+    if (status != SDK_SUCCESS || s_anyResponse == true)
+    {
+        return NULL;
+    }
+
+    return s_responseExtraPayload;
 }
