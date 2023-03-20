@@ -149,7 +149,7 @@ static void localLog(LogMsg * logMsg)
     static char logBuff[SIZE_OF_TIME_AND_TYPE] = {0};
 
     offset += getTimeStr(logBuff, logMsg->timestamp);
-    offset += sprintf((logBuff + offset)," %-7s :",s_logTypes[logMsg->logType]);
+    offset += sprintf((logBuff + offset)," %-7s:",s_logTypes[logMsg->logType]);
 
     status = DevLoggerSend(s_loggerLocalHandle, (void*)logBuff, strlen(logBuff)+1);
     assert(status == SDK_SUCCESS);
@@ -221,6 +221,7 @@ static void sendCurrentTable(uint16_t tableIndex)
 
 static void logMsgThreadFunc()
 {
+#if 0 // implement mqtt
     SDK_STAT status = SDK_SUCCESS;
     uint16_t indexOfLogMsg = 0;
     while(true)
@@ -248,6 +249,7 @@ static void logMsgThreadFunc()
             indexOfLogMsg = 0;
         }
     }
+#endif
 }
 
 SDK_STAT LoggerInit()

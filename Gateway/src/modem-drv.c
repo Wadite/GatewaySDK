@@ -1,13 +1,13 @@
 #include "modem-drv.h"
 #include "osal.h"
 
-#include <zephyr/zephyr.h>
 #include <assert.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/modem/hl7800.h>
 
 #include "logger.h"
 
@@ -165,6 +165,7 @@ SDK_STAT ModemSend(const void* dataBuff, uint16_t buffSize)
 	uart_irq_tx_enable(s_uartDev);
 
     err = k_sem_take(&s_txSendSem, K_FOREVER);
+    printk("Sent: |%s|\n", s_uartTxMsgqBuf);
     if(err)
     {
         return SDK_FAILURE;
@@ -173,47 +174,57 @@ SDK_STAT ModemSend(const void* dataBuff, uint16_t buffSize)
     return SDK_SUCCESS;
 }
 
+extern struct k_sem lteConnectedSem;
+static int i = 0;
+
+void modemCallback(enum mdm_hl7800_event event, void *event_data)
+{
+    struct mdm_hl7800_compound_event *net_change;
+    ++i;
+    switch (event)
+    {
+        case HL7800_EVENT_NETWORK_STATE_CHANGE:
+            net_change = event_data;
+            if (net_change->code == HL7800_HOME_NETWORK || net_change->code == HL7800_ROAMING)
+            {
+                k_sem_give(&lteConnectedSem);
+            }
+            break;
+        case HL7800_STARTUP_STATE_UNRECOVERABLE_ERROR:
+            //TODO reset
+            break;
+    }
+}
+
+void printI()
+{
+    printk("cb i %d\n", i);
+}
+
+struct mdm_hl7800_callback_agent agent;
+
 static void modemDeviceStart()
 {
-    int result = 0;
-    const struct device* gpioDev = device_get_binding("GPIO_0");
+    int status = 0;
 
-    result = gpio_pin_configure(gpioDev, PIN_CATM_EN, GPIO_OUTPUT);
-    __ASSERT((result >= 0),"Received error from gpio_pin_configure");
-    result = gpio_pin_configure(gpioDev, PIN_PWRKET_MCU, GPIO_OUTPUT);
-    __ASSERT((result >= 0),"Received error from gpio_pin_configure");
+    printk("Starting modem\n");
 
-    result = gpio_pin_set(gpioDev, PIN_CATM_EN,0);
-    __ASSERT((result >= 0),"Received error from gpio_pin_set");
-    k_msleep(1000);
-    result = gpio_pin_set(gpioDev, PIN_CATM_EN,1);
-    __ASSERT((result >= 0),"Received error from gpio_pin_set");
-
-    result = gpio_pin_set(gpioDev, PIN_PWRKET_MCU,1);
-    __ASSERT((result >= 0),"Received error from gpio_pin_set");
-    k_msleep(1000);
-    result = gpio_pin_set(gpioDev, PIN_PWRKET_MCU,0);
-    __ASSERT((result >= 0),"Received error from gpio_pin_set");
+    status = mdm_hl7800_reset();
+    if (status != 0)
+    {
+        printk("########failed resetting modem\n");
+    }
 }
+
 
 SDK_STAT ModemInit(ReadModemDataCB cb) 
 {
     modemDeviceStart();
 
-    s_uartDev = device_get_binding("MODEM_UART");
-    if(!s_uartDev || !cb)
-    {
-        return SDK_FAILURE;
-    }
-
-    s_modemReadFunc = cb;
-    k_msgq_init(&s_uartRxMsgq, s_uartRxMsgqBuf, 1, UART_RX_MSGQ_SIZE);
-    
-    k_thread_create(&s_uartReadThread, s_uartReadThreadStack, K_KERNEL_STACK_SIZEOF(s_uartReadThreadStack),
-                    uartRead, NULL, NULL, NULL, CONVERTED_PRIORITY(THREAD_PRIORITY_HIGH), 0, K_NO_WAIT);
-
-    uart_irq_callback_user_data_set(s_uartDev, modemUartIsr, NULL);
-    uart_irq_rx_enable(s_uartDev);
-
     return SDK_SUCCESS;
+}
+
+void modemUnregCb()
+{
+    mdm_hl7800_unregister_event_callback(&agent);
 }

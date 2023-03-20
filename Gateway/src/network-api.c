@@ -10,13 +10,23 @@
 #include "logger.h"
 #include "flash-drv.h"
 #include "sdkUtils.h"
+#include "mqttTopics.h"
+#include "downLink.h"
+// #include "ca_certificate.h"
 
-#include <zephyr/zephyr.h>
 #include <assert.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/uart.h>
+#include <zephyr/drivers/modem/hl7800.h>
+#include <zephyr/net/net_ip.h>
+#include <zephyr/net/tls_credentials.h>
+#include <zephyr/net/http/client.h>
+#include <zephyr/net/socket.h>
+#include <zephyr/net/tls_credentials.h>
+#include <zephyr/net/net_mgmt.h>
+#include <zephyr/net/mqtt.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -109,11 +119,74 @@
 #define MQTT_CONNECT_FOOTER_CHAR			(32)
 #define MQTT_SUBSCRIBE_FOOTER_CHAR			(144)
 #define MQTT_PACKET_DEFAULT_DUP				(0)
-#define MQTT_PACKET_DEFAULT_QOS				(0)
+#define MQTT_PACKET_DEFAULT_QOS				(MQTT_QOS_0_AT_MOST_ONCE)
 #define MQTT_PACKET_DEFAULT_FLAG			(0)
 #define MQTT_PUBLISH_TIME_RESPONSE			(1000)
 #define MQTT_ERROR_CODE_CONNECT				{32,2,0,0}
 #define MQTT_ERROR_CODE_SUBSCRIBE			{144,3,0,1,0}
+#define MQTT_CONNECT_TIMEOUT_MS             (30000)
+#define MQTT_INPUT_TIMEOUT_MS               (5000)
+
+#define K_LTE_TIMEOUT                       (K_SECONDS(80))
+#define HTTPS_PORT                          "443"
+#define HTTPS_PORT_INT                      (443)
+#define MAX_REQUEST_SIZE                    (2048)
+#define MAX_RESPONSE_SIZE                   (4096)
+#define CA_CERTIFICATE_TAG                  (42)
+
+#define GET_TOKEN_REQUEST "POST " URL_EXT_ACCESS_TOKEN " HTTP/1.1\r\n"\
+        "Host: " SHORT_URL "\r\n"\
+        "Connection: close\r\n"\
+        "Content-Type: application/json\r\n"\
+        "Content-length: 0\r\n"\
+        "Authorization: " API_SEC_KEY "\r\n\r\n"
+
+#define SET_GW_REQUEST "PUT %s HTTP/1.1\r\n"\
+        "Host: " SHORT_URL "\r\n"\
+        "Content-length: %d\r\n"\
+        "%s\r\n"\
+        "Content-Type: application/json\r\n\r\n"\
+        "%s\r\n"
+
+#define GET_CODES_REQUEST "POST " URL_EXT_DEVICE_AUTH " HTTP/1.1\r\n"\
+        "Host: " SHORT_URL "\r\n\r\n"\
+
+/* register_connection_request is the same as getconnectionaccessandrefreshtoken request*/
+#define REGISTER_CONNECTION_REQUEST "POST " URL_EXT_REG_GATEWAY " HTTP/1.1\r\n"\
+        "Host: " SHORT_URL "\r\n"\
+        "Content-length: %d\r\n"\
+        "Content-Type: application/json\r\n\r\n"\
+        "%s\r\n"
+#define VALIDATE_REFRESH_REQUEST "POST " URL_EXT_GET_TOKENS " HTTP/1.1\r\n"\
+        "Host: " SHORT_URL "\r\n"\
+        "Content-length: %d\r\n"\
+        "Content-Type: application/json\r\n\r\n"\
+        "%s\r\n"
+
+#define UPDATE_TOKEN_REQUEST "POST " URL_EXT_UPDATE_ACCESS "%s HTTP/1.1\r\n"\
+        "Host: " SHORT_URL "\r\n\r\n"\
+
+#define AUTH_HEADER_SIZE    (sizeof(HEADER_AUTHORIZATION) + sizeof(HEADER_SEPERATE) + sizeof(CONNECTION_TOKEN_TYPE) + \
+                            SIZE_OF_ACCESS_CONNECTION_TOKEN + 1)
+
+#define MAX_URL_EXT_SIZE (48)
+
+static bool verifyConnectionResponse();
+
+typedef enum{
+        TLS_PEER_VERIFICATION_NONE     = 0,
+        TLS_PEER_VERIFICATION_OPTIONAL = 1,
+        TLS_PEER_VERIFICATION_REQUIRED = 2,
+}eTlsVerification;
+
+static const char wlt_cert[] = {
+        #include "wiliot_till_june_2023.der.inc"
+};
+
+typedef struct{
+    int bodyLen;
+    char *body;
+}regAndRefreshParam;
 
 typedef struct{
 	bool isWaitingResponse;
@@ -122,6 +195,7 @@ typedef struct{
 } CallbackStruct;
 
 static struct k_event s_responseEvent;
+static char s_response[MAX_RESPONSE_SIZE];
 static CallbackStruct s_callbackStruct;
 static cJSON *s_lastJson = NULL;
 static char s_accessToken[SIZE_OF_ACCESS_TOKEN_FULL + 1] = {0};
@@ -130,10 +204,71 @@ static char s_responseExtraPayload[SIZE_OF_RESPONSE_PAYLOAD + 1] = {0};
 static bool s_isLTEConfigurationDone = false;
 static unsigned char s_mqttPacketBuff[MQTT_MAX_PACKET_SIZE] = {0};
 static char s_addressStringBuffer[SIZE_OF_ADDRESS_BUFFER] = {0};
+static char s_requestBuffer[MAX_REQUEST_SIZE] = {0};
 NetMQTTPacketCB s_receivedMQTTPacketHandle = 0;
 handleConnStateChangeCB s_receivedConnStateHandle = 0;
 static conn_handle s_connHandle = 0;
 static bool s_anyResponse = false;
+
+static bool is_network_ready = false;
+
+static void iface_dns_added_evt_handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event,
+                    struct net_if *iface)
+{
+    if (mgmt_event != NET_EVENT_DNS_SERVER_ADD)
+    {
+        return;
+    }
+    printk("DNS ready\n");
+    is_network_ready = true;
+}
+
+static void iface_up_evt_handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event,
+                    struct net_if *iface)
+{
+    if (mgmt_event != NET_EVENT_IF_UP)
+    {
+        return;
+    }
+    printk("interface is up\n");
+}
+
+static void iface_down_evt_handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event,
+                    struct net_if *iface)
+{
+    if (mgmt_event != NET_EVENT_IF_DOWN)
+    {
+        return;
+    }
+    printk("Interface is down\n");
+    is_network_ready = false;
+}
+
+static struct mgmt_events {
+    uint32_t event;
+    net_mgmt_event_handler_t handler;
+    struct net_mgmt_event_callback cb;
+} iface_events[] = {
+    {.event = NET_EVENT_DNS_SERVER_ADD, .handler = iface_dns_added_evt_handler},
+    {.event = NET_EVENT_IF_UP,          .handler = iface_up_evt_handler},
+    {.event = NET_EVENT_IF_DOWN,        .handler = iface_down_evt_handler},
+    {0} /* setup_iface_events requires this extra location. */
+};
+
+static void setup_iface_events(void)
+{
+    int i;
+    for (i = 0; iface_events[i].event; i++)
+    {
+        net_mgmt_init_event_callback(&iface_events[i].cb, iface_events[i].handler,
+                            iface_events[i].event);
+
+        net_mgmt_add_event_callback(&iface_events[i].cb);
+    }
+}
+
+K_SEM_DEFINE(lteConnectedSem, 0, 1);
+
 
 static char * getUrlExtGateWayOwn(char * buff) 
 {
@@ -206,6 +341,7 @@ static void connectionStateChangeProcess()
 	s_receivedConnStateHandle(s_connHandle);
 }
 
+// TODO this happens in the mqtteventhandler
 static void postConnectionMessageProcess(uint8_t* buff, uint16_t buffSize)
 {
 	static bool incommingServerMsg = false;
@@ -294,34 +430,234 @@ static inline SDK_STAT modemResponseWait(char * waitWord, size_t wordSize, uint3
 	return SDK_SUCCESS;
 }
 
-static SDK_STAT setConnectionUrl(void)
+//TODO fit current conventions (status, initialize etc)
+static int tls_setup_http(int sock)
 {
-	SDK_STAT status = SDK_SUCCESS;
-	AtCmndsParams cmndsParams = {0};
+	int err;
+	int verify;
 
-	cmndsParams.atQhttpcfg.cmd = HTTP_CONFIGURATION_PDP_CONTEXT_ID;
-	cmndsParams.atQhttpcfg.value = HTTP_CONFIG_CONTEX_ID;
-	status = AtWriteCmd(AT_CMD_QHTTPCFG, &cmndsParams);
-	__ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+	/* Security tag that we have provisioned the certificate with */
+	const sec_tag_t tls_sec_tag[] = {
+		CA_CERTIFICATE_TAG,
+	};
 
-	cmndsParams.atQhttpcfg.cmd = HTTP_CONFIGURATION_REQUEST_HEADER;
-	cmndsParams.atQhttpcfg.value = HTTP_CONFIG_REQUEST_HEADER;
-	status = AtWriteCmd(AT_CMD_QHTTPCFG, &cmndsParams);
-	__ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+	/* Set up TLS peer verification */
+	verify = TLS_PEER_VERIFICATION_NONE; 
 
-	cmndsParams.atQhttpurl.urlLength = strlen(CONNECTION_URL);
-	cmndsParams.atQhttpurl.urlTimeout = HTTP_SEND_RECEIVE_TIMEOUT;
-	status = AtWriteCmd(AT_CMD_QHTTPURL, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MODEM_HTTP_URL_VERIFY_WORD, strlen(MODEM_HTTP_URL_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-	ModemSend(CONNECTION_URL, cmndsParams.atQhttpurl.urlLength);
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+	err = setsockopt(sock, SOL_TLS, TLS_PEER_VERIFY, &verify, sizeof(verify));
+	if (err)
+    {
+        printk("Failed to setup peer verification, err %d\n", errno);
+        return err;
+	}
+
+	/* Associate the socket with the security tag
+	 * we have provisioned the certificate with.
+	 */
+	err = setsockopt(sock, SOL_TLS, TLS_SEC_TAG_LIST, tls_sec_tag,
+			 sizeof(tls_sec_tag));
+	if (err)
+    {
+        printk("Failed to setup TLS sec tag, err %d\n", errno);
+        return err;
+	}
+
+    err = setsockopt(sock, SOL_TLS, TLS_HOSTNAME, SHORT_URL, strlen(SHORT_URL));
+	if (err)
+    {
+        printk("Failed to setup TLS_HOSTNAME, err %d\n", errno);
+        return err;
+	}
+
+    /* TLS-ECDHE-RSA-WITH-AES-128-CBC-SHA256: 0xC027 */
+    // int cipher_list[] = {0xC027};
+
+    // err = setsockopt(sock, SOL_TLS, TLS_CIPHERSUITE_LIST, cipher_list, sizeof(cipher_list));
+    // if (err) {
+    //     printk("Failed to set up cipher suite list, err %d\n", errno);
+    //     return err;
+    // }
+
+    int sessioncache = TLS_SESSION_CACHE_DISABLED;
+    err = setsockopt(sock, SOL_TLS, TLS_SESSION_CACHE, &sessioncache, sizeof(sessioncache)); // done in lte
+    printk("fd=%d with Security Tag Id %d is ready\n",  sock, CA_CERTIFICATE_TAG);	
+	if (err)
+    {
+        printk("Failed to setup TLS_HOSTNAME, err %d\n", errno);
+        return err;
+	}
+
+	return 0;
+}
+
+static void dump_addrinfo(const struct addrinfo *ai)
+{
+	printf("addrinfo @%p: ai_family=%d, ai_socktype=%d, ai_protocol=%d, "
+	       "sa_family=%d, sin_port=%x\n",
+	       ai, ai->ai_family, ai->ai_socktype, ai->ai_protocol,
+	       ai->ai_addr->sa_family,
+	       ((struct sockaddr_in *)ai->ai_addr)->sin_port);
+}
+
+typedef struct{
+    char urlExt[MAX_URL_EXT_SIZE];
+    int contentLen;
+    char authToken[AUTH_HEADER_SIZE];
+    char bodyGateWay[SIZE_OF_ADDRESS_BUFFER];
+}setConnGWParams;
+
+typedef struct{
+    char *userCode;
+    char *deviceCode;
+}userDevCodes;
+
+typedef struct{
+    Token *accessToken;
+    uint32_t *accessTokenExpiry;
+}accessTokenInfo;
+
+typedef enum{
+    GET_ACCESS_TOKEN,
+    SET_CONNECTION_GW,
+    GET_CONNECTION_CODES,
+    REGISTER_CONNECTION_GW,
+    VALIDATE_AND_GET_REFRESH_TOKEN,
+    UPDATE_ACCESS_TOKEN,
+    REQUEST_GOAL_NUM,
+}eRequestGoal;
+
+static int setRequestBuffer(eHttpMsgType msgType, eRequestGoal goal, void *requestParams) //TODO improve this to an array for better runtime
+{
+    int status;
+    setConnGWParams *setParams = requestParams;
+    regAndRefreshParam *regParams = requestParams;
+
+    switch (goal)
+    {
+        case GET_ACCESS_TOKEN:
+            assert(requestParams == NULL);
+            status = sprintf(s_requestBuffer, GET_TOKEN_REQUEST);
+            break;
+        case SET_CONNECTION_GW:
+            status = sprintf(s_requestBuffer, SET_GW_REQUEST, setParams->urlExt, setParams->contentLen, setParams->authToken,
+                        setParams->bodyGateWay);
+            break;
+        case GET_CONNECTION_CODES:
+            status = sprintf(s_requestBuffer, GET_CODES_REQUEST);
+            break;
+        case REGISTER_CONNECTION_GW:
+            status = sprintf(s_requestBuffer, REGISTER_CONNECTION_REQUEST, regParams->bodyLen, regParams->body);
+            break;
+        case VALIDATE_AND_GET_REFRESH_TOKEN:
+            status = sprintf(s_requestBuffer, VALIDATE_REFRESH_REQUEST, regParams->bodyLen, regParams->body);
+            break;
+        case UPDATE_ACCESS_TOKEN:
+            status = sprintf(s_requestBuffer, UPDATE_TOKEN_REQUEST, (char *)requestParams);
+            break;
+    }
+
+    if (status < 0)
+    {
+        printk("ERROR sprintf failed\n");
+        return SDK_FAILURE;
+    }
+    printk("REQ:\n|%s|\n", s_requestBuffer);
+
+    return SDK_SUCCESS;
+}
+
+//TODO freeaddrinfo needed?
+static int sendHttpRequest(eHttpMsgType msgType, eRequestGoal msgGoal, void *requestParams)
+{
+    int sock = -1;
+	int status = 0;
+    int offset = 0;
+    int len = 0;
+    struct addrinfo *res = NULL;
+    struct addrinfo hints = {
+        .ai_family = AF_INET,
+        .ai_socktype = SOCK_STREAM,
+    };
+    printk("########## in open httpsocket\n");
+    status = getaddrinfo(SHORT_URL, HTTPS_PORT, &hints, &res);
+    if (status != 0)
+    {
+        printk("###ERROR: Unable to resolve address, status %d, errno %d\n", status, errno);
+        return SDK_FAILURE;
+    }
+    dump_addrinfo(res);
+
+    sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TLS_1_2);
+    if (sock == -1)
+    {
+        printk("###ERROR: Invalid socket %d, errno %d\n", sock, errno);
+        return SDK_FAILURE;
+    }
+
+    status = tls_setup_http(sock);
+    if (status != SDK_SUCCESS)
+    {
+        close(sock);
+        return SDK_FAILURE;
+    }
+
+    status = connect(sock, res->ai_addr, sizeof(struct sockaddr_in));
+    if (status == -1)
+    {
+        printk("###ERROR: failed to connect, err %d\n", errno);
+        close(sock);
+        return SDK_FAILURE;
+    }
+
+    status = setRequestBuffer(msgType, msgGoal, requestParams);
+    if (status == SDK_FAILURE)
+    {
+        printk("###ERROR: setting request buffer failed, err %d\n", errno);
+        close(sock);
+        return SDK_FAILURE;
+    }
+
+    len = strlen(s_requestBuffer);
+
+    do {
+        status = send(sock, &s_requestBuffer[offset], len - offset, 0);
+        if (status < 0)
+        {
+            printk("###ERROR: send failed, err %d\n", errno);
+            close(sock);
+            return SDK_FAILURE;
+        }
+        offset += status;
+    } while (offset < len);
+
+	printk("Response:\n\n");
+    offset = 0;
+    len = sizeof(s_response) - 1;
+    memset(s_response, 0, sizeof(s_response));
+
+	do {
+		status = recv(sock, &s_response[offset], len - offset, 0); // change it to something with timeout (SO_RCVTIMEO?)
+
+		if (status < 0) {
+			printk("Error reading response\n");
+            close(sock);
+			return SDK_FAILURE;
+		}
+        offset += status;
+
+		if (strstr(s_response, "Connection: close") != NULL) {
+			break;
+		}
+
+	} while (status != 0);
+    printk("|%s|\n", s_response);
+
+    (void)close(sock);
+    sock = -1;
+    if (res != NULL)
+    {
+        freeaddrinfo(res);
+    }
 
 	return SDK_SUCCESS;
 }
@@ -365,65 +701,100 @@ static SDK_STAT sentAndReadHttpMsg(AtCmndsParams cmndsParams, eAtCmds atCmd, cha
 	return SDK_SUCCESS;
 }
 
-static SDK_STAT getConnectionAccessToken(char * accessConnectionToken)
+static SDK_STAT getTokenInfo(accessTokenInfo *buffer)
 {
-	AtCmndsParams cmndsParams = {0};
-	char * httpMsgString = NULL;
+    SDK_STAT status = SDK_FAILURE;
+    cJSON * checkDataJson = cJSON_GetObjectItem(s_lastJson, "access_token");
+    if(checkDataJson)
+    {
+        memcpy(s_accessToken, cJSON_GetStringValue(checkDataJson), SIZE_OF_ACCESS_TOKEN_FULL);
+        *buffer->accessToken = s_accessToken;
 
-	const char* headers[] ={
-		HEADER_HOST HEADER_SEPERATE SHORT_URL,
-		HEADER_AUTHORIZATION HEADER_SEPERATE API_SEC_KEY
-	};
+        checkDataJson = cJSON_GetObjectItem(s_lastJson, "expires_in");
+        if(checkDataJson)
+        {
+            *buffer->accessTokenExpiry = (uint32_t)cJSON_GetNumberValue(checkDataJson);
+            status = SDK_SUCCESS;
+        }
+    }
 
-	uint16_t headersSize = sizeof(headers)/sizeof(headers[0]);
+    return status;
+}
 
-	httpMsgString = BuildHttpPostMsg(URL_EXT_ACCESS_TOKEN, headers, headersSize, NULL);
-	cmndsParams.atQhttppost.postBodySize = strlen(httpMsgString);
-	cmndsParams.atQhttppost.inputTimeout = HTTP_SEND_RECEIVE_TIMEOUT;
-	cmndsParams.atQhttppost.responseTimeout = HTTP_SEND_RECEIVE_TIMEOUT;
+//TODO handle fails within func
+static SDK_STAT getResponseInfo(eRequestGoal goal, void *buffer)
+{
+    SDK_STAT status = SDK_SUCCESS;
+    char *jsonPos = strchr(s_response, '{');
+    if (jsonPos == NULL)
+    {
+        printk("ERROR failed to find json within response");
+        return SDK_FAILURE;
+    }
+    s_lastJson = cJSON_Parse(jsonPos);
 
-	sentAndReadHttpMsg(cmndsParams, AT_CMD_QHTTPPOST, httpMsgString);
+    switch (goal)
+    {
+        case GET_ACCESS_TOKEN:
+            cJSON *accessTokenJson = cJSON_GetObjectItem(s_lastJson, "access_token");
+            memcpy(buffer, cJSON_GetStringValue(accessTokenJson), SIZE_OF_ACCESS_CONNECTION_TOKEN);
+            break;
+        case SET_CONNECTION_GW:
+            cJSON *checkDataJson = cJSON_GetObjectItem(s_lastJson, "data");
+            printk("Json response: %s\r\n",cJSON_GetStringValue(checkDataJson));
+            break;
+        case GET_CONNECTION_CODES:
+            userDevCodes *codeBuffers = buffer;
+            cJSON * codesJson = cJSON_GetObjectItem(s_lastJson, "device_code");
+            memcpy(codeBuffers->deviceCode, cJSON_GetStringValue(codesJson), SIZE_OF_DEVICE_CODE);
+            codesJson = cJSON_GetObjectItem(s_lastJson, "user_code");
+            memcpy(codeBuffers->userCode, cJSON_GetStringValue(codesJson), SIZE_OF_USER_CODE);
+            break;
+        case REGISTER_CONNECTION_GW:
+            break;
+        case VALIDATE_AND_GET_REFRESH_TOKEN:
+            *(bool *)buffer = verifyConnectionResponse();
+            break;
+        case UPDATE_ACCESS_TOKEN:
+            accessTokenInfo *tokenBuffer = buffer;
+            status = getTokenInfo(tokenBuffer);
+            break;
+        default:
+            printk("WRN unrecognized request goal within getResponseInfo\n");
+            break;
+    }
 
-	cJSON *accessTokenJson = cJSON_GetObjectItem(s_lastJson, "access_token");
-	memcpy(accessConnectionToken, cJSON_GetStringValue(accessTokenJson), SIZE_OF_ACCESS_CONNECTION_TOKEN);
 	cJSON_Delete(s_lastJson);
 
-	return SDK_SUCCESS;
+    return status;
 }
+
+static SDK_STAT getConnectionAccessToken(char * accessConnectionToken)
+{
+	int status = sendHttpRequest(HTTP_MSG_TYPE_POST, GET_ACCESS_TOKEN, NULL); //was setconnectionurl
+    if (status == SDK_FAILURE)
+    {
+        return SDK_FAILURE;
+    }
+
+    status = getResponseInfo(GET_ACCESS_TOKEN, accessConnectionToken);
+
+    return status;
+}
+
 
 static SDK_STAT setConnectionGateway(char * authorizationHeader)
 {
 	SDK_STAT status = SDK_SUCCESS;
-	AtCmndsParams cmndsParams = {0};
-	char * httpMsgString = NULL;
-	int index = 0;
-	char bodyGateWay[SIZE_OF_ADDRESS_BUFFER] = {0};
+    setConnGWParams params = {0};
+    URL_EXT_GATEWAY_OWN(params.urlExt);
+	BODY_GATEWAY(params.bodyGateWay);
+    params.contentLen = strlen(params.bodyGateWay);
+    strcpy(params.authToken, authorizationHeader);
 
-	BODY_GATEWAY(bodyGateWay);
-	char contLengthHeader[sizeof(HEADER_CONTENT_LENGTH) + sizeof(HEADER_SEPERATE) + MAX_BODY_SIZE_DIGITS_NUM]; 
-	index += sprintf((contLengthHeader + index),HEADER_CONTENT_LENGTH HEADER_SEPERATE);
-	index += sprintf((contLengthHeader + index),"%d",strlen(bodyGateWay));
+    status = sendHttpRequest(HTTP_MSG_TYPE_PUT, SET_CONNECTION_GW, &params);
 
-	const char* headers[] ={
-		HEADER_HOST HEADER_SEPERATE SHORT_URL,
-		contLengthHeader,
-		authorizationHeader,
-		HEADER_CONTENT_TYPE HEADER_SEPERATE TYPE_APP_JSON
-	};
-
-	uint16_t headersSize = sizeof(headers)/sizeof(headers[0]);
-
-	httpMsgString = BuildHttpPutMsg(URL_EXT_GATEWAY_OWN(s_addressStringBuffer), headers, headersSize, bodyGateWay);
-	cmndsParams.atQhttppost.postBodySize = strlen(httpMsgString);
-	cmndsParams.atQhttppost.inputTimeout = HTTP_SEND_RECEIVE_TIMEOUT;
-	cmndsParams.atQhttppost.responseTimeout = HTTP_SEND_RECEIVE_TIMEOUT;
-
-	status = sentAndReadHttpMsg(cmndsParams, AT_CMD_QHTTPPUT, httpMsgString);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	cJSON *checkDataJson = cJSON_GetObjectItem(s_lastJson, "data");
-	LOG_DEBUG_INTERNAL("Json response: %s\r\n",cJSON_GetStringValue(checkDataJson));
-	cJSON_Delete(s_lastJson);
+    status = getResponseInfo(SET_CONNECTION_GW, NULL);
 
 	return SDK_SUCCESS;
 }
@@ -431,57 +802,33 @@ static SDK_STAT setConnectionGateway(char * authorizationHeader)
 static SDK_STAT getConnectionCodes(char * userCode, char * deviceCode)
 {
 	SDK_STAT status = SDK_SUCCESS;
-	AtCmndsParams cmndsParams = {0};
-	char * httpMsgString = NULL;
+    userDevCodes codes = {userCode, deviceCode};
 
-	const char* headers[] ={
-		HEADER_HOST HEADER_SEPERATE SHORT_URL
-	};
+    status = sendHttpRequest(HTTP_MSG_TYPE_POST, GET_CONNECTION_CODES, NULL);
+    if (status == SDK_FAILURE)
+    {
+        printk("ERROR sendHttpRequest failed\n");
+        return SDK_FAILURE;
+    }
 
-	uint16_t headersSize = sizeof(headers)/sizeof(headers[0]);
+    status = getResponseInfo(GET_CONNECTION_CODES, &codes);
 
-	httpMsgString = BuildHttpPostMsg(URL_EXT_DEVICE_AUTH, headers, headersSize, NULL);
-	cmndsParams.atQhttppost.postBodySize = strlen(httpMsgString);
-	cmndsParams.atQhttppost.inputTimeout = HTTP_SEND_RECEIVE_TIMEOUT;
-	cmndsParams.atQhttppost.responseTimeout = HTTP_SEND_RECEIVE_TIMEOUT;
-
-	status = sentAndReadHttpMsg(cmndsParams, AT_CMD_QHTTPPOST, httpMsgString);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	cJSON * checkDataJson = cJSON_GetObjectItem(s_lastJson, "device_code");
-	memcpy(deviceCode, cJSON_GetStringValue(checkDataJson), SIZE_OF_DEVICE_CODE);
-	checkDataJson = cJSON_GetObjectItem(s_lastJson, "user_code");
-	memcpy(userCode, cJSON_GetStringValue(checkDataJson), SIZE_OF_USER_CODE);
-	cJSON_Delete(s_lastJson);
-
-	return SDK_SUCCESS;
+	return status;
 }
 
 static SDK_STAT registerConnectionGateway(char * bodyUserCode)
 {
 	SDK_STAT status  = SDK_SUCCESS;
-	AtCmndsParams cmndsParams = {0};
-	char * httpMsgString = NULL;
-	int index = 0;
+    regAndRefreshParam params = {0};
+    params.bodyLen = strlen(bodyUserCode);
+    params.body = bodyUserCode;
 
-	char contLengthHeader[sizeof(HEADER_CONTENT_LENGTH) + sizeof(HEADER_SEPERATE) + MAX_BODY_SIZE_DIGITS_NUM]; 
-	index += sprintf((contLengthHeader + index),HEADER_CONTENT_LENGTH HEADER_SEPERATE);
-	index += sprintf((contLengthHeader + index),"%d",strlen(bodyUserCode));
+    status = sendHttpRequest(HTTP_MSG_TYPE_POST, REGISTER_CONNECTION_GW, &params);
+    if (status == SDK_FAILURE)
+    {
+        printk("ERROR sendHttpRequest failed\n");
+    }
 
-	const char* headers[] ={
-		HEADER_HOST HEADER_SEPERATE SHORT_URL,
-		contLengthHeader,
-		HEADER_CONTENT_TYPE HEADER_SEPERATE TYPE_APP_JSON
-	};
-
-	uint16_t headersSize = sizeof(headers)/sizeof(headers[0]);
-
-	httpMsgString = BuildHttpPostMsg(URL_EXT_REG_GATEWAY, headers, headersSize, bodyUserCode);
-	cmndsParams.atQhttppost.postBodySize = strlen(httpMsgString);
-	cmndsParams.atQhttppost.inputTimeout = HTTP_SEND_RECEIVE_TIMEOUT;
-	cmndsParams.atQhttppost.responseTimeout = HTTP_SEND_RECEIVE_TIMEOUT;
-
-	status = sentAndReadHttpMsg(cmndsParams, AT_CMD_QHTTPPOST, httpMsgString);
 	return status;
 }
 
@@ -493,7 +840,6 @@ static bool verifyConnectionResponse()
 		memcpy(s_accessToken, cJSON_GetStringValue(checkDataJson), SIZE_OF_ACCESS_TOKEN_FIRST);
 		checkDataJson = cJSON_GetObjectItem(s_lastJson, "refresh_token");
 		memcpy(s_refreshToken, cJSON_GetStringValue(checkDataJson), SIZE_OF_REFRESH_TOKEN);
-		cJSON_Delete(s_lastJson);
 		return true;
 	}
 	else
@@ -502,7 +848,6 @@ static bool verifyConnectionResponse()
 		__ASSERT((checkDataJson),"cJSON_GetObjectItem unexpected fail");
 		int validError = strcmp("authorization_pending",cJSON_GetStringValue(checkDataJson));
 		__ASSERT((validError == 0),"cJSON_GetObjectItem unexpected fail");
-		cJSON_Delete(s_lastJson);
 		OsalSleep(TIME_TO_RETRY_TOKEN_RECEIVE);
 		return false;
 	}
@@ -511,150 +856,91 @@ static bool verifyConnectionResponse()
 static SDK_STAT getConnectionAccessAndRefreshToken(char * bodyDeviceCode)
 {
 	SDK_STAT status = SDK_SUCCESS;
-	AtCmndsParams cmndsParams = {0};
-	char * httpMsgString = NULL;
-	int index = 0;
 	bool receivedResponse = false;
-
-	char contLengthHeader[sizeof(HEADER_CONTENT_LENGTH) + sizeof(HEADER_SEPERATE) + MAX_BODY_SIZE_DIGITS_NUM]; 
-	index += sprintf((contLengthHeader + index),HEADER_CONTENT_LENGTH HEADER_SEPERATE);
-	index += sprintf((contLengthHeader + index),"%d",strlen(bodyDeviceCode));
-
-	const char* headers[] ={
-		HEADER_HOST HEADER_SEPERATE SHORT_URL,
-		contLengthHeader,
-		HEADER_CONTENT_TYPE HEADER_SEPERATE TYPE_APP_JSON
-	};
-
-	uint16_t headersSize = sizeof(headers)/sizeof(headers[0]);
-
-	httpMsgString = BuildHttpPostMsg(URL_EXT_GET_TOKENS, headers, headersSize, bodyDeviceCode);
-	cmndsParams.atQhttppost.postBodySize = strlen(httpMsgString);
-	cmndsParams.atQhttppost.inputTimeout = HTTP_SEND_RECEIVE_TIMEOUT;
-	cmndsParams.atQhttppost.responseTimeout = HTTP_SEND_RECEIVE_TIMEOUT;
+    regAndRefreshParam params = {0};
+    params.bodyLen = strlen(bodyDeviceCode);
+    params.body = bodyDeviceCode;
 
 	while(!receivedResponse)
 	{
-		status = sentAndReadHttpMsg(cmndsParams, AT_CMD_QHTTPPOST, httpMsgString);
-		RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-		receivedResponse = verifyConnectionResponse();
+        status = sendHttpRequest(HTTP_MSG_TYPE_POST, VALIDATE_AND_GET_REFRESH_TOKEN, &params);
+        if (status == SDK_FAILURE)
+        {
+            printk("ERROR sendHttpRequest failed\n");
+            return SDK_FAILURE;
+        }
+        status = getResponseInfo(VALIDATE_AND_GET_REFRESH_TOKEN, &receivedResponse);
 	}
+
+    printk("Response recieved, GW approved!\n");
 
 	return SDK_SUCCESS;
 }
 
+void LteInit()
+{
+    int status = 0;
+
+    printk("#######Setting up modem functionality\n");
+    status = mdm_hl7800_set_functionality(HL7800_FUNCTIONALITY_FULL);
+    if (status < 0)
+    {
+        printk("######modem set_func failure, err %d\n", status);
+        mdm_hl7800_set_functionality(HL7800_FUNCTIONALITY_FULL); // TODO if fails reset
+    }
+
+    printk("######finished initializing modem\n");
+}
+
+static SDK_STAT writeTlsCertificate()
+{
+    int status = SDK_SUCCESS;
+
+    status = tls_credential_delete(CA_CERTIFICATE_TAG, TLS_CREDENTIAL_CA_CERTIFICATE); //don't delete?
+    if (status == -EACCES)
+    {
+        printk("Failed accesing security tags\n");
+        return SDK_FAILURE;
+    }
+    k_msleep(100);
+    status = tls_credential_add(CA_CERTIFICATE_TAG, TLS_CREDENTIAL_CA_CERTIFICATE, wlt_cert, sizeof(wlt_cert));
+    if (status != SDK_SUCCESS)
+    {
+        printk("Failed adding certificate\n");
+        return SDK_FAILURE;
+    }
+
+    return SDK_SUCCESS;
+}
+
 SDK_STAT NetworkInit()
 {
-    SDK_STAT status = SDK_SUCCESS;
-	char responseBuffer[RESPONSE_BUFFER_SIZE] = {0};
-    AtCmndsParams cmndsParams = {0};
+    int status = SDK_SUCCESS;
 	
 	k_event_init(&s_responseEvent);
 
-	status = ModemInit(modemReadCallback);
+    setup_iface_events();
+
+	status = ModemInit(modemReadCallback); /*the handler interrupr the send/recv system calls!*/
 	__ASSERT((status == SDK_SUCCESS),"ModemInit internal fail");
-	status = modemResponseWait(MODEM_READY_VERITY_WORD, strlen(MODEM_READY_VERITY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
-	status = AtExecuteCmd(AT_CMD_TEST);
-    __ASSERT((status == SDK_SUCCESS),"AtExecuteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+    while (!is_network_ready)
+    {
+        printk("Waiting for network to be ready...\n");
+        k_sleep(K_SECONDS(5));
+    }
 
-	status = AtExecuteCmd(AT_CMD_QCCID);
-    __ASSERT((status == SDK_SUCCESS),"AtExecuteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	cmndsParams.atCtzrParams.mode = MODE_ENABLE_EXTENDED_TIME_ZONE_CHANGE;
-	status = AtWriteCmd(AT_CMD_CTZR, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	cmndsParams.atCtzuParams.mode = MODE_ENABLE_AUTOMATIC_TIME_ZONE_UPDATE;
-	status = AtWriteCmd(AT_CMD_CTZU, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	cmndsParams.atQcfgParams.cmd = EXTENDED_CONFIGURE_RATS_SEARCHING_SEQUENCE;
-	cmndsParams.atQcfgParams.mode = SEARCHING_SEQUENCE;
-	cmndsParams.atQcfgParams.effect = TAKE_EFFECT_IMMEDIATELY;
-	status = AtWriteCmd(AT_CMD_QCFG, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	cmndsParams.atQcfgParams.cmd = EXTENDED_CONFIGURE_RATS_TO_BE_SEARCHED;
-	cmndsParams.atQcfgParams.mode = SCAN_MODE_GSM_ONLY;
-	cmndsParams.atQcfgParams.effect = TAKE_EFFECT_IMMEDIATELY;
-	status = AtWriteCmd(AT_CMD_QCFG, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	cmndsParams.atQcfgParams.cmd = EXTENDED_CONFIGURE_NETWORK_SEARCH_UNDER_LTE_RAT;
-	cmndsParams.atQcfgParams.mode = NETWORK_CATEGORY_EMTC;
-	cmndsParams.atQcfgParams.effect = TAKE_EFFECT_IMMEDIATELY;
-	status = AtWriteCmd(AT_CMD_QCFG, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	cmndsParams.atCgdcontParams.cid = PDP_CONTEXT_IDENTIFIER;
-	cmndsParams.atCgdcontParams.type = PDP_TYPE_IPV4V6;
-	cmndsParams.atCgdcontParams.apn = ACCESS_POINT_NAME;
-	status = AtWriteCmd(AT_CMD_CGDCONT, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	cmndsParams.atCereg.status = NETWORK_REGISTRATION_ENABLE;
-	status = AtWriteCmd(AT_CMD_CEREG, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	while(true)
-	{
-		status = AtReadCmd(AT_CMD_CEREG);
-		__ASSERT((status == SDK_SUCCESS),"AtReadCmd internal fail");
-		status = atEnumToResponseString(AT_CMD_CEREG, responseBuffer, RESPONSE_BUFFER_SIZE);
-		__ASSERT((status == SDK_SUCCESS),"atEnumToResponseString internal fail");
-		status = modemResponseWait(responseBuffer, strlen(responseBuffer), MODEM_WAKE_TIMEOUT);
-		RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-		if(strcmp(s_responseExtraPayload, MODEM_CEREG_SUCCESS_PAYLOAD) == 0)
-		{
-			break;
-		}
-
-		OsalSleep(TIME_TO_RETRY_CEREG_PAYLOAD);
-	}
-
-	status = AtReadCmd(AT_CMD_COPS);
-    __ASSERT((status == SDK_SUCCESS),"AtReadCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	status = AtExecuteCmd(AT_CMD_QCSQ);
-    __ASSERT((status == SDK_SUCCESS),"AtExecuteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	cmndsParams.atQlts.mode = QUERY_THE_CURRENT_LOCAL_TIME;
-	status = AtWriteCmd(AT_CMD_QLTS, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+    k_msleep(100);
 
     if (SDK_SUCCESS != UpdateConfGatewayId())
     {
-        printk("Failed setting imei-based id");
+        printk("Failed setting imei-based id\n");
     }
 
-	return SDK_SUCCESS;
+    status = writeTlsCertificate();
+    k_msleep(100);
+
+	return status;
 }
 
 bool IsNetworkAvailable()
@@ -679,6 +965,7 @@ bool IsNetworkAvailable()
 	return isNetworkAvailable;
 }
 
+//TODO handle failures better. free memory, retry/reset.
 SDK_STAT ConnectToNetwork()
 {
 	SDK_STAT status = SDK_SUCCESS;
@@ -689,31 +976,27 @@ SDK_STAT ConnectToNetwork()
 	int deviceIndex = 0;
 	int userIndex = 0;
 
-	authorizationHeader = (char*)OsalCalloc(sizeof(HEADER_AUTHORIZATION) + sizeof(HEADER_SEPERATE) + sizeof(CONNECTION_TOKEN_TYPE) + SIZE_OF_ACCESS_CONNECTION_TOKEN + 1);
+	authorizationHeader = (char*)OsalCalloc(AUTH_HEADER_SIZE);
 	if(!authorizationHeader)
 	{
         printk("Allocation failed!\n");
 		return SDK_FAILURE;
 	}
 
-	status = setConnectionUrl();
-    printk("setconnectionUrl %d\n", status);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
 	authIndex += sprintf((authorizationHeader + authIndex),HEADER_AUTHORIZATION HEADER_SEPERATE CONNECTION_TOKEN_TYPE);
 	authIndex += sprintf((authorizationHeader + authIndex)," ");
 
-	status = getConnectionAccessToken(authorizationHeader + authIndex);
+	status = getConnectionAccessToken(authorizationHeader + authIndex);//gets token with api_sec_key
     printk("getconnectionaccesstoken %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-	status = setConnectionGateway(authorizationHeader);
+	status = setConnectionGateway(authorizationHeader);//pre-register gw
     printk("setconnectiongateway %d\n", status);
 	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
 	userIndex += sprintf((bodyUserCode + userIndex),"%s",BODY_REG_USR_CODE_PRE(s_addressStringBuffer));
 	deviceIndex += sprintf((bodyDeviceCode + deviceIndex),"%s",BODY_REG_DEV_CODE_PRE(s_addressStringBuffer));
 
-	getConnectionCodes((bodyUserCode + userIndex), (bodyDeviceCode + deviceIndex));
+	getConnectionCodes((bodyUserCode + userIndex), (bodyDeviceCode + deviceIndex));//get codes required for registration and refresh token
 
 	userIndex += SIZE_OF_USER_CODE;
 	deviceIndex += SIZE_OF_DEVICE_CODE;
@@ -721,7 +1004,7 @@ SDK_STAT ConnectToNetwork()
 	userIndex += sprintf((bodyUserCode + userIndex),BODY_REG_POST);
 	deviceIndex += sprintf((bodyDeviceCode + deviceIndex),BODY_REG_POST);
 
-	status = registerConnectionGateway(bodyUserCode);
+	status = registerConnectionGateway(bodyUserCode);//register gw
     if (status != SDK_SUCCESS)
     {
         OsalFree(authorizationHeader);
@@ -737,67 +1020,24 @@ SDK_STAT ConnectToNetwork()
 SDK_STAT UpdateAccessToken(Token refreshToken, Token * accessToken, uint32_t * accessTokenExpiry)
 {
 	SDK_STAT status = SDK_SUCCESS;
-    AtCmndsParams cmndsParams = {0};
-	char * httpMsgString = NULL;
-	char extendedUrlWithRefreshToken[sizeof(URL_EXT_UPDATE_ACCESS) + SIZE_OF_REFRESH_TOKEN + 1] = {0};
-	bool currentLTEConfig = s_isLTEConfigurationDone;
+    accessTokenInfo params = {accessToken, accessTokenExpiry};
 
-	s_isLTEConfigurationDone = false;
+	// s_isLTEConfigurationDone = false; this pauses mqtt handling by modemreadcb
 
 	if(!refreshToken || !accessToken || !accessTokenExpiry)
 	{
 		return SDK_INVALID_PARAMS;
 	}
 
-	status = setConnectionUrl();
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+    status = sendHttpRequest(HTTP_MSG_TYPE_POST, UPDATE_ACCESS_TOKEN, refreshToken);
+    if (status == SDK_FAILURE)
+    {
+        printk("ERROR sendHttpRequest failed\n");
+        return SDK_FAILURE;
+    }
+    status = getResponseInfo(UPDATE_ACCESS_TOKEN, &params);
 
-	sprintf(extendedUrlWithRefreshToken, URL_EXT_UPDATE_ACCESS);
-	sprintf((extendedUrlWithRefreshToken + sizeof(URL_EXT_UPDATE_ACCESS) - 1),"%s", (char*)refreshToken);
-
-	const char* headers[] ={
-		HEADER_HOST HEADER_SEPERATE SHORT_URL,
-	};
-
-	uint16_t headersSize = sizeof(headers)/sizeof(headers[0]);
-
-	httpMsgString = BuildHttpPostMsg(extendedUrlWithRefreshToken, headers, headersSize, NULL);
-	cmndsParams.atQhttppost.postBodySize = strlen(httpMsgString);
-	cmndsParams.atQhttppost.inputTimeout = HTTP_SEND_RECEIVE_TIMEOUT;
-	cmndsParams.atQhttppost.responseTimeout = HTTP_SEND_RECEIVE_TIMEOUT;
-
-	status = sentAndReadHttpMsg(cmndsParams, AT_CMD_QHTTPPOST, httpMsgString);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	cJSON * checkDataJson = cJSON_GetObjectItem(s_lastJson, "access_token");
-
-	if(checkDataJson)
-	{
-		memcpy(s_accessToken, cJSON_GetStringValue(checkDataJson), SIZE_OF_ACCESS_TOKEN_FULL);
-		*accessToken = s_accessToken;
-
-		checkDataJson = cJSON_GetObjectItem(s_lastJson, "expires_in");
-		if(checkDataJson)
-		{
-			*accessTokenExpiry = (uint32_t)cJSON_GetNumberValue(checkDataJson);
-		}
-		else
-		{
-			s_isLTEConfigurationDone = currentLTEConfig;
-			cJSON_Delete(s_lastJson);
-			return SDK_FAILURE;
-		}
-
-		s_isLTEConfigurationDone = currentLTEConfig;
-		cJSON_Delete(s_lastJson);
-		return SDK_SUCCESS;
-	}
-	else
-	{
-		s_isLTEConfigurationDone = currentLTEConfig;
-		cJSON_Delete(s_lastJson);
-		return SDK_NOT_FOUND;
-	}
+    return status;
 }
 
 static SDK_STAT openSSLLink()
@@ -885,107 +1125,531 @@ static SDK_STAT connectToSSL()
 	return status;
 }
 
+/* Buffers for MQTT client */
+#define RX_BUF_SIZE      (2048)
+#define TX_BUF_SIZE      (4096)
+#define PAYLOAD_BUF_SIZE (1024)
+
+#define MQTT_TOPIC_ID_MAX_SIZE              (64)
+#define MQTT_USER_MAX_SIZE                  (64)
+#define MQTT_CLIENT_ID_MAX_SIZE             (64)
+#define MQTT_BROKER_URI_MAX_SIZE            (128)
+#define MQTT_PASSOWRD_MAX_SIZE              (2048)
+
+static uint8_t rx_buffer[RX_BUF_SIZE] = {0};
+static uint8_t tx_buffer[TX_BUF_SIZE] = {0};
+static uint8_t payload_buf[PAYLOAD_BUF_SIZE] = {0};
+
+uint8_t *pub_data_topic_id;
+uint8_t *pub_status_topic_id;
+uint8_t *sub_update_topic_id;
+uint8_t *mqtt_client_id;
+uint8_t *mqtt_user;
+uint8_t *mqtt_uri;
+uint8_t *mqtt_pw;
+uint32_t mqtt_port;
+
+struct mqtt_utf8 username;
+struct mqtt_utf8 password;
+
+bool mqtt_sub_ready = false;
+
+static struct mqtt_client client;
+static struct sockaddr_storage broker;
+static bool mqttConnected = false;
+static bool topicSubbed = false;
+
+static struct pollfd mqtt_fd;
+
+K_SEM_DEFINE(mqttConnectedSem, 0, 1);
+
+static bool isTopicSubbed(void)
+{
+    return topicSubbed;
+}
+
+static void setTopicSubbed(bool status)
+{
+    topicSubbed = status;
+}
+
+static SDK_STAT getMqttInput(int miliseconds)
+{
+    int status;
+
+    status = poll(&mqtt_fd, 1, miliseconds);
+    if (status < 0)
+    {
+        printk("error polling, status %d, err %d\n", status, errno);
+        return SDK_FAILURE;
+    }
+    else if (status == 0)
+    {
+        printk("polling timed out, no mqtt input\n");
+        return SDK_TIMEOUT;
+    }
+
+    mqtt_input(&client);
+
+    return SDK_SUCCESS;
+}
+
+
 SDK_STAT SubscribeToTopic(char * topic)
 {
-	int req_qos = 0;
-	int len = 0;
-	int numOfTopicFiltersAndQosArray = 0;
-	static int packetId = 0;
-	SDK_STAT status = SDK_SUCCESS;
-	MQTTString topicString = MQTTString_initializer;
-	uint8_t errCode[] = MQTT_ERROR_CODE_SUBSCRIBE;
+    int status;
 
-	if(!topic) 
-	{
-		return SDK_INVALID_PARAMS;
+	struct mqtt_topic subscribe_topic = {
+		.topic = {
+			.utf8 = topic,
+			.size = strlen(topic)
+		},
+		.qos = MQTT_QOS_0_AT_MOST_ONCE
+                
+	};
+
+	const struct mqtt_subscription_list subscription_list = {
+		.list = &subscribe_topic,
+		.list_count = 1,
+		.message_id = 1234
+	};
+
+	printk("Subscribing to: %s len %u\n", topic, strlen(topic));
+
+    status = mqtt_subscribe(&client, &subscription_list);
+    if (status != 0)
+    {
+        printk("mqtt_subscribe FAILED, status %d\n", status);
+        return SDK_FAILURE;
+    }
+
+    status = getMqttInput(MQTT_INPUT_TIMEOUT_MS);
+    if (status != SDK_SUCCESS)
+    {
+        printk("FAILED getting mqtt input, status %d\n", status);
+        return SDK_FAILURE;
+    }
+
+    if (!isTopicSubbed())
+    {
+        printk("FAILED subscribing to topic\n");
+        return SDK_FAILURE;
+    }
+
+    return SDK_SUCCESS;
+}
+
+static bool isMqttConnected(void) //TODO unify with isConnectedToBrokerServer
+{
+    return mqttConnected;
+}
+
+static void setMqttConnected(bool status)
+{
+    mqttConnected = status;
+    if (status == true)
+    {
+        k_sem_give(&mqttConnectedSem);
+    }
+    else
+    {
+        k_sem_reset(&mqttConnectedSem);
+        // s_receivedConnStateHandle(&CONN_STATE_DISCONNECTIONS) TODO this and inside changeconnstatecallback
+    }
+}
+
+conn_handle IsConnectedToBrokerServer()
+{
+    if (isMqttConnected() && isTopicSubbed())
+    {
+        return (conn_handle)1;
+    }
+
+    return NULL;
+}
+
+void mqttEventHandler(struct mqtt_client *client, const struct mqtt_evt *evt)
+{
+	int err;
+    cJSON * cloud_config_json = NULL;
+
+	switch (evt->type)
+    {
+        case MQTT_EVT_CONNACK:
+            if (evt->result != 0)
+            {
+                printk("###Mqtt connection failed, %d\n", evt->result);
+                //TODO error handle, reboot?
+                return;
+            }
+            setMqttConnected(true);
+
+            // if(isTopicSubbed() == false)
+            // {
+            //     err = SubscribeToTopic(sub_update_topic_id);
+            //     if (err != SDK_SUCCESS)
+            //     {
+            //         printk("MQTT subscribe failed!\n");
+            //     }
+            //     printk("'update' topic subscription attempted\n");
+            // }
+            break;
+
+        case MQTT_EVT_DISCONNECT:
+            setMqttConnected(false);
+            // printk("MQTT disconnected\n"); //try reconnecting if network is up?
+            break;
+
+        case MQTT_EVT_PUBLISH: 
+            const int publishLen = evt->param.publish.message.payload.len;
+            if (evt->result != 0 || publishLen > (PAYLOAD_BUF_SIZE - 1))
+            {
+                printk("###Mqtt publish failed. err %d, published message len > buffsize? %d\n", evt->result, 
+                    publishLen > (PAYLOAD_BUF_SIZE - 1));
+                //TODO error handle, reboot?
+                return;
+            }
+            err = mqtt_readall_publish_payload(client, payload_buf, publishLen);
+            if (err < 0)
+            {
+                printk("Failed reading publish payload from subscribed topic, err %d\n", err);
+                //TODO error handle, reboot?
+                return;
+            }
+            // payload_buf[publishLen] = '\0'; //necessary?
+            if (!IS_JSON_PREFIX(payload_buf))
+            {
+                printk("Payload recieved is not identified as JSON(first char == %c\n", payload_buf[0]);
+                return;
+            }
+            // printk("New Configuration or Action (%d Bytes) = \n%s\n", publishLen, payload_buf);
+            createDownlinkJson(payload_buf);
+            break;
+
+        case MQTT_EVT_PUBACK:
+            if (evt->result != 0)
+            {
+                printk("###Mqtt puback failed, %d\n", evt->result);
+                //TODO error handle, reboot?
+                return;
+            }
+            // printk("[%s:%d] PUBACK packet id: %u", (__func__), __LINE__,	evt->param.puback.message_id);
+            break;
+
+        case MQTT_EVT_SUBACK:
+            if (evt->result != 0)
+            {
+                printk("###Mqtt suback failed, %d\n", evt->result);
+                //TODO error handle, reboot?
+                return;
+            }
+            // printk("[%s:%d] Received MQTT Subscribe Acknowledge", (__func__), __LINE__);
+            setTopicSubbed(true);
+            break;
+
+        case MQTT_EVT_PINGRESP:
+            if (evt->result != 0)
+            {
+                printk("###Mqtt ping response failed, %d\n", evt->result);
+                //TODO error handle, reboot?
+                return;
+            }
+            // printk("##Got ping response\n");
+            break;
+
+        case MQTT_EVT_UNSUBACK: 
+            if (evt->result != 0)
+            {
+                printk("###Mqtt unsuback failed, %d\n", evt->result);
+                //TODO error handle, reboot?
+                return;
+            }
+            printk("Mqtt unsubscribed successfully\n");
+            setTopicSubbed(false);
+            break;
+
+        default:
+            // printk("[%s:%d] Unsupported Event Type: %d", __func__, __LINE__, evt->type);
+            break;
+	}
+}
+
+static int setMqttCredentials(void)
+{
+    const char *gatewayId = NULL;
+    SDK_STAT status = SDK_SUCCESS;
+
+    status = GetGatewayId(&mqtt_client_id);
+    if (status != SDK_SUCCESS)
+    {
+        printk("GetGatewayId FAILED, status %d\n", status);
+        return status;
+    }
+
+    status = GetAccountID((const char **)&mqtt_user);
+    if (status != SDK_SUCCESS)
+    {
+        printk("GetAccountID FAILED, status %d\n", status);
+        return status;
+    }
+
+    status = GetAccessToken((Token *)&mqtt_pw);
+    if (status != SDK_SUCCESS)
+    {
+        printk("GetAccessToken FAILED, status %d\n", status);
+        return status;
+    }
+
+    status = GetMqttServer(&mqtt_uri);
+    if (status != SDK_SUCCESS)
+    {
+        printk("GetMqttServer FAILED, status %d\n", status);
+        return status;
+    }
+
+    mqtt_port = MQTT_SERV_PORT;
+
+    printk("MQTT credentials:\n#id:%s\n#user:%s\n#pw:%s\n#uri:%s\n#port:%u\n", mqtt_client_id, mqtt_user, mqtt_pw, mqtt_uri, mqtt_port);
+
+    return SDK_SUCCESS;
+}
+
+static int setMqttTopics(void)
+{
+    pub_data_topic_id = GetMqttDownlinkTopic();
+    pub_status_topic_id = GetMqttStatusTopic();
+    sub_update_topic_id = GetMqttUplinkTopic();
+
+    printk("MQTT Publish Data Topic = %s (%d Bytes)\n", (pub_data_topic_id), strlen(pub_data_topic_id));
+    printk("MQTT Publish Status Topic = %s (%d Bytes)\n", (pub_status_topic_id), strlen(pub_status_topic_id));
+    printk("MQTT Subscribe Update Topic = %s (%d Bytes)\n", (sub_update_topic_id), strlen(sub_update_topic_id));
+    printk("MQTT Client Id = %s (%d Bytes)\n", (mqtt_client_id), strlen(mqtt_client_id));
+
+    return SDK_SUCCESS;
+}
+
+static SDK_STAT brokerInit(void)
+{
+	int err;
+	struct addrinfo *result = NULL;
+	struct addrinfo *addr = NULL;
+	struct addrinfo hints = {
+		.ai_family = AF_INET,
+		.ai_socktype = SOCK_STREAM
+	};
+
+	err = getaddrinfo(mqtt_uri, NULL, &hints, &result);
+	if (err != 0)
+    {
+		printk("ERROR: getaddrinfo failed %d (errno=%d)", err, errno);
+		return SDK_FAILURE;
 	}
 
-	topicString.cstring = topic;
-	numOfTopicFiltersAndQosArray++;
+	addr = result;
 
-	len = MQTTSerialize_subscribe(s_mqttPacketBuff, sizeof(s_mqttPacketBuff), MQTT_PACKET_DEFAULT_DUP, 
-									(++packetId), numOfTopicFiltersAndQosArray, &topicString, &req_qos);
-	__ASSERT(len,"MQTTSerialize_subscribe internal fail");
+	/* Look for address of the broker. */
+	while (addr != NULL)
+    {
+		/* IPv4 Address. */
+		if (addr->ai_addrlen == sizeof(struct sockaddr_in))
+        {
+			struct sockaddr_in *broker4 = (struct sockaddr_in *)&broker;
+			char ipv4Addr[NET_IPV4_ADDR_LEN];
 
-	status = sendSSLPacket(MQTT_CLIENT_IDX, len);
-	if(status != SDK_SUCCESS)
-	{
-        printk("sendSSLPacket %d", status);
-		return status;
+			broker4->sin_addr.s_addr = ((struct sockaddr_in *)addr->ai_addr)->sin_addr.s_addr;
+			broker4->sin_family = AF_INET;
+			broker4->sin_port = htons(mqtt_port);
+
+			inet_ntop(AF_INET, &broker4->sin_addr.s_addr,
+				  ipv4Addr, sizeof(ipv4Addr));
+			printk("MQTT Broker IPv4 Address is %s", (ipv4Addr));
+			break;
+		} 
+        else 
+        {
+			printk("ERROR ai_addrlen = %u should be %u or %u",
+				(unsigned int)addr->ai_addrlen,
+				(unsigned int)sizeof(struct sockaddr_in),
+				(unsigned int)sizeof(struct sockaddr_in6));
+		}
+
+		addr = addr->ai_next;
 	}
 
-	status = modemResponseWait((char*)errCode, sizeof(errCode), MODEM_WAKE_TIMEOUT);
-	if(status != SDK_SUCCESS)
-	{
-        printk("modemresponsewait errCode %d", status);
-		return status;
-	}
+	/* Free the address. */
+    if(result != NULL)
+    {
+        freeaddrinfo(result);
+    }
 
 	return SDK_SUCCESS;
 }
 
+#define CONFIG_SEC_TAG (51966)
+static sec_tag_t secTagList[] = { CA_CERTIFICATE_TAG };
+
+static SDK_STAT clientInit(void)
+{
+    SDK_STAT status;
+    username.utf8 = mqtt_user;
+    username.size = strlen(mqtt_user);
+    password.utf8 = mqtt_pw;
+    password.size = strlen(mqtt_pw);        
+
+	mqtt_client_init(&client);
+
+	status = brokerInit();
+	if (status != SDK_SUCCESS)
+    {
+		printk("Failed to initialize broker connection\n");
+		return SDK_FAILURE;
+	}
+
+   	/* MQTT client configuration */
+	client.broker = &broker;
+	client.evt_cb = mqttEventHandler;
+	client.client_id.utf8 = mqtt_client_id;
+	client.client_id.size = strlen(mqtt_client_id);
+	client.password = &password;
+    client.user_name = &username;        
+	client.protocol_version = MQTT_VERSION_3_1_1;
+    client.keepalive = 120; // 2 minutes
+	client.transport.type = MQTT_TRANSPORT_SECURE;
+
+	/* MQTT buffers configuration */
+	client.rx_buf = rx_buffer;
+	client.rx_buf_size = RX_BUF_SIZE;
+	client.tx_buf = tx_buffer;
+	client.tx_buf_size = TX_BUF_SIZE;
+
+	/* MQTT transport configuration */
+	struct mqtt_sec_config *tlsConfig = &client.transport.tls.config;
+
+	tlsConfig->peer_verify = TLS_PEER_VERIFICATION_NONE; //TODO this is less secured
+	tlsConfig->cipher_count = 0;
+	tlsConfig->cipher_list = NULL;
+	tlsConfig->sec_tag_count = ARRAY_SIZE(secTagList);
+	tlsConfig->sec_tag_list = secTagList;
+	tlsConfig->hostname = NULL;
+	tlsConfig->session_cache = TLS_SESSION_CACHE_DISABLED;
+       
+	return SDK_SUCCESS;
+}
+
+static void setMqttFd(void)
+{
+    mqtt_fd.fd = client.transport.tls.sock;
+    mqtt_fd.events = POLLIN;
+}
+
+static SDK_STAT mqttInit(void)
+{
+    SDK_STAT status;
+
+    status = setMqttCredentials();
+    if (status != SDK_SUCCESS)
+    {
+        printk("setMqttCredentials failed, status %d\n", status);
+        return status;
+    }
+    
+    status = setMqttTopics();
+    if (status != SDK_SUCCESS)
+    {
+        printk("setMqttTopics failed, status %d\n", status);
+        return status;
+    }
+
+    status = clientInit();
+    if (status != SDK_SUCCESS)
+    {
+        printk("ClientInit failed, status %d\n", status);
+        return status;
+    }
+
+    return SDK_SUCCESS;
+}
+
+static SDK_STAT waitForMqttConnection()
+{
+    int status;
+
+    status = getMqttInput(MQTT_CONNECT_TIMEOUT_MS);
+    if (status < 0)
+    {
+        printk("Could not get mqtt input, status %d, err %d\n", status, errno);
+        return SDK_FAILURE;
+    }
+
+    status = k_sem_take(&mqttConnectedSem, K_MSEC(MQTT_CONNECT_TIMEOUT_MS));
+    if (status != 0)
+    {
+        printk("ERROR Mqtt connection was not acknowledged\n");
+        return SDK_FAILURE;
+    }
+
+    printk("MQTT connected successfully!\n");
+
+    return SDK_SUCCESS;
+}
+
 conn_handle ConnectToServer()
 {
-	SDK_STAT status = SDK_SUCCESS;
-    AtCmndsParams cmndsParams = {0};
+	int rc = SDK_SUCCESS;
 
-	s_connHandle = (conn_handle)CONNECTION_HANDLE;
+    rc = mqttInit();
+    if (rc != SDK_SUCCESS)
+    {
+        printk("mqttInit failed\n");
+        return NULL;
+    }
 
-	status = openSSLLink();
-    printk("openssllink %d\n", status);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, NULL);
+    rc = mqtt_connect(&client);
+    if (rc != 0)
+    {
+        printk("mqtt_connect failed, err %d errno %d\n", rc, errno);
+        return NULL;
+    }
 
-	cmndsParams.atQiswtmd.clientId = MQTT_CLIENT_IDX;
-	cmndsParams.atQiswtmd.accessMode = MQTT_ACCESS_DIRECT_PUSH;
+    setMqttFd();
 
-	status = AtWriteCmd(AT_CMD_QISWTMD, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	__ASSERT((status == SDK_SUCCESS),"modemResponseWait internal fail");
+    rc = waitForMqttConnection();
+    if (rc != SDK_SUCCESS)
+    {
+        printk("ERROR Mqtt could not connect\n");
+        return NULL;
+    }
 
-	connectToSSL();
-
-	ModemSend(TURN_OFF_AT_CMD_ECHO,strlen(TURN_OFF_AT_CMD_ECHO));
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	__ASSERT((status == SDK_SUCCESS),"modemResponseWait internal fail");
-
-	s_isLTEConfigurationDone = true;
+	s_connHandle = (conn_handle)CONNECTION_HANDLE; //prev imp
 
 	return s_connHandle;
 }
 
 SDK_STAT NetSendMQTTPacket(const char* topic, void* pkt, uint32_t length)
 {
-	int len = 0;
-	static unsigned short packetId = 0;
-
+	// static unsigned short packetId = 0; counters?
 	SDK_STAT status = SDK_SUCCESS;
-    AtCmndsParams cmndsParams = {0};
-	MQTTString topicString = MQTTString_initializer;
+    struct mqtt_publish_param param = {0};
 
 	if(!pkt || !topic || length == 0)
 	{
 		return SDK_INVALID_PARAMS;
 	}
-	//casting to work with the library. topic is still const
-	topicString.cstring = (char*)topic;
-	len = MQTTSerialize_publish(s_mqttPacketBuff, sizeof(s_mqttPacketBuff), MQTT_PACKET_DEFAULT_DUP, 
-								MQTT_PACKET_DEFAULT_QOS, MQTT_PACKET_DEFAULT_FLAG, (++packetId), 
-								topicString, (unsigned char*)pkt, length);
 
-	cmndsParams.atQsslsend.clientId = MQTT_CLIENT_IDX;
-	cmndsParams.atQsslsend.payloadLength = len;
+    param.message.topic.qos = MQTT_PACKET_DEFAULT_QOS;
+    param.message.topic.topic.utf8 = topic;
+    param.message.topic.topic.size = strlen(topic);
+    param.message.payload.data = pkt;
+    param.message.payload.len = length;
 
-	status = AtWriteCmd(AT_CMD_QSSLSEND, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MQTT_INPUT_STRING, strlen(MQTT_INPUT_STRING), MQTT_PUBLISH_TIME_RESPONSE);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+    status = mqtt_publish(&client, &param);
+    if (status != 0)
+    {
+        printk("mqtt_publish failed, status %d, errno %d\n", status, errno);
+        return SDK_FAILURE;
+    }
 
-	ModemSend(s_mqttPacketBuff,len);
-	status = modemResponseWait(MQTT_GOOD_PUBLISH_RESPOSE, strlen(MQTT_GOOD_PUBLISH_RESPOSE), MQTT_PUBLISH_TIME_RESPONSE);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	return SDK_SUCCESS;
+    return SDK_SUCCESS;
 }
 
 SDK_STAT RegisterNetReceiveMQTTPacketCallback(NetMQTTPacketCB cb)
@@ -1178,20 +1842,5 @@ SDK_STAT RegisterConnStateChangeCB(handleConnStateChangeCB cb, conn_handle handl
 
 char *GetIMEI()
 {
-	AtCmndsParams cmndsParams = {0};
-    cmndsParams.atCgsn.getImei = 1;
-    SDK_STAT status;
-
-    s_anyResponse = true;
-    status = AtExecuteCmd(AT_CMD_CGSN);
-	__ASSERT((status == SDK_SUCCESS),"AtExecuteCmd internal fail");
-	modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD) + 1, MODEM_WAKE_TIMEOUT);
-    OsalSleep(200);
-
-    if (status != SDK_SUCCESS || s_anyResponse == true)
-    {
-        return NULL;
-    }
-
-    return s_responseExtraPayload;
+    return mdm_hl7800_get_imei();
 }

@@ -19,7 +19,7 @@
 
 #ifndef MQTTCONNECT_H_
 #define MQTTCONNECT_H_
-
+#if 0 //ROEE disabled, these are defined within zephyr's MQTT implementation
 enum connack_return_codes
 {
     MQTT_CONNECTION_ACCEPTED = 0,
@@ -29,6 +29,7 @@ enum connack_return_codes
     MQTT_BAD_USERNAME_OR_PASSWORD = 4,
     MQTT_NOT_AUTHORIZED = 5,
 };
+#endif //ROEE
 
 #if !defined(DLLImport)
   #define DLLImport

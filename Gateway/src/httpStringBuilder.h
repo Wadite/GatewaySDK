@@ -2,6 +2,14 @@
 #define _HTTP_STRING_BUILDER_H
 
 #include <stdint.h>
+
+typedef enum{
+    HTTP_MSG_TYPE_POST,
+    HTTP_MSG_TYPE_PUT,
+
+    HTTP_MSG_TYPE_NUM
+}eHttpMsgType;
+
 /**
  * @brief Build http post message.
  * 

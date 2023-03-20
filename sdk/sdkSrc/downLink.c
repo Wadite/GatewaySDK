@@ -139,7 +139,8 @@ static void advJson(cJSON * advJson)
     }
 }
 
-static void createDownlinkJson(const char* ptr)
+//TODO error handling, make it SDK fitting, better func name (it is equivalent to update_json_config_file on LTE)
+void createDownlinkJson(const char* ptr)
 {
     SDK_STAT status = SDK_SUCCESS;
     cJSON * downLinkJson = cJSON_Parse(ptr);

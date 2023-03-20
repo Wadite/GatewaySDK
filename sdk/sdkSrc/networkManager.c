@@ -25,15 +25,17 @@
 #define SIZE_OF_NETWORK_MANGAER_QUEUE            (1)
 #endif
 
-#define ACCESS_TOKEN_REFRESH_WINDOW_MS           (300000)
+#define ACCESS_TOKEN_REFRESH_WINDOW_MS           (600000)
 #define RECONNECTION_ATTEMPTS                    (5)
 
 #define TIME_TO_LOG                              (1000)
+#define SEC_TO_MSEC(num)                         (num * MSEC_PER_SEC)
 
 OSAL_CREATE_POOL(s_networkManagerMemPool, SIZE_OF_NETWORK_MANAGER_MEMORY);
 
 typedef enum{
 	CONN_STATE_DISCONNECTION,
+    CONN_STATE_CONNECTION,
 
     CONN_STATE_NUM
 } eConnectionStates;
@@ -62,6 +64,7 @@ static void changeConnStateCallback(conn_handle connHandle)
         return;
     }
 
+    //TODO set it according to callback getting different mqtt states. call this in the cb. will allow for later reconnection.
     *connState = CONN_STATE_DISCONNECTION;
 
     status = OsalQueueEnqueue(s_queueOfNetworkManager, connState, s_networkManagerMemPool);
@@ -79,7 +82,8 @@ static SDK_STAT localAccessTokenUpdate(Token refreshToken)
     status = UpdateAccessToken(refreshToken, &accessToken, &s_accessTokenExpiry);
     RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
-    s_accessTokenExpiry += (OsalGetTime() - ACCESS_TOKEN_REFRESH_WINDOW_MS);
+    /* TODO this will loop after 49 days, relevant? */
+    s_accessTokenExpiry = SEC_TO_MSEC(s_accessTokenExpiry) + OsalGetTime() - ACCESS_TOKEN_REFRESH_WINDOW_MS;
 
     return SDK_SUCCESS;
 }
@@ -191,12 +195,10 @@ static void networkManagerThreadFunc()
     status = SubscribeToTopic((char*)GetMqttDownlinkTopic());
     assert(SDK_SUCCESS == status);
 
-    s_isNetworkConnected = true;
-
     status = SendConfigurationToServer();
     assert(SDK_SUCCESS == status);
 
-    s_isNetworkConnected = true;
+    // s_isNetworkConnected = true;
     while(true)
     {
         status = OsalQueueWaitForObject(s_queueOfNetworkManager, 
@@ -211,6 +213,7 @@ static void networkManagerThreadFunc()
                 reconnectionFlow();
                 break;
 
+            case CONN_STATE_CONNECTION:
             case CONN_STATE_NUM:
                 break;
         }
@@ -269,12 +272,13 @@ SDK_STAT NetworkManagerInit()
 
 SDK_STAT NetworkMqttMsgSend(const char* topic, void* pkt, uint32_t length)
 {
+#if 1 // implement mqtt
     SDK_STAT status = SDK_SUCCESS;
 
     status = OsalMutexLock(s_mqttMsgMutex, 0);
     assert(status == SDK_SUCCESS);
     
-    if(s_isNetworkConnected)
+    if(IsConnectedToBrokerServer())
     {
         if(OsalGetTime() >= s_accessTokenExpiry)
         {
@@ -286,12 +290,13 @@ SDK_STAT NetworkMqttMsgSend(const char* topic, void* pkt, uint32_t length)
             RETURN_ON_FAIL(status, SDK_SUCCESS, status);
         }
 
-        status = NetSendMQTTPacket(topic,pkt, length);
+        status = NetSendMQTTPacket(topic, pkt, length);
         RETURN_ON_FAIL(status, SDK_SUCCESS, status);
     }
 
     status = OsalMutexUnlock(s_mqttMsgMutex);
     assert(status == SDK_SUCCESS);
 
+#endif
     return SDK_SUCCESS;
 }

@@ -9,12 +9,6 @@
 #define STR_END                 ('\0')
 #define HTTP_VER                ("HTTP/1.1")
 
-typedef enum{
-    HTTP_MSG_TYPE_POST,
-    HTTP_MSG_TYPE_PUT,
-
-    HTTP_MSG_TYPE_NUM
-}eHttpMsgType;
 
 static const char * s_httpMsgTypetable[HTTP_MSG_TYPE_NUM] = {
     [HTTP_MSG_TYPE_POST]         = "POST",

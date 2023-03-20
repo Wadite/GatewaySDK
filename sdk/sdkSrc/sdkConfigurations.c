@@ -40,7 +40,7 @@
 #define DEFAULT_CONF_NUMBER_OF_LOGS     "5"
 #define DEFAULT_CONF_UUID               "0xfdaf"
 #define DEFAULT_CONF_ACCOUNT_ID         "959266658936"/*tandem test:"102115004740"*/
-#define DEFAULT_CONF_GATEWAY_TYPE       "other"
+#define DEFAULT_CONF_GATEWAY_TYPE       "lte"
 #define DEFAULT_CONF_GATEWAY_ID         "GWDEADBEEF8888"
 #define DEFAULT_CONF_LOCATION_SUPPORT   CONFIG_STRING_TRUE
 #define DEFAULT_CONF_LOCATION           "0.0"
@@ -427,7 +427,6 @@ static char * readFromStorageAssist(eConfigurationParams confParam)
     return tempStorageAllocation;
 }
 
-// not seeing bridges with updateconfgatewayid called.
 SDK_STAT UpdateConfGatewayId(void)
 {
     SDK_STAT status = SDK_SUCCESS;
@@ -667,7 +666,8 @@ SDK_STAT SendConfigurationToServer()
     const char * confStr = getConfigurationJsonString();
     const char * topic = GetMqttStatusTopic();
 
-    // printk("#####json sent:\n%s\n", confStr);
+    printk("#####json sent:\n%s\ntopic:%s\n#####SLEEP AND DONE#####\n", confStr, topic);
+
 	status = NetworkMqttMsgSend(topic, (char*)confStr, strlen(confStr));
 	FreeJsonString((char*)confStr);
 
