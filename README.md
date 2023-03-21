@@ -21,8 +21,12 @@ TODO : [Provide a general overview of the steps required to get the project up a
 
 ### Prerequisites
 
-List any software or dependencies that need to be installed before the user can use the project. Include links to relevant documentation or installation instructions.
+Software: You're expected to have any [Zephyr](https://docs.zephyrproject.org/latest/introduction/index.html)-based development environment. 
+Our choice is [nRF Connect extension for VSCode](https://nrfconnect.github.io/vscode-nrf-connect/get_started/install.html). The extension allows you to edit, build & flash the project with an easy intuitive GUI once set up.
 
+Hardware: You'll need your board, as well as any necessary hardware for flashing it.
+In our goto case it's the [MG100](https://www.lairdconnect.com/iot-devices/bluetooth-iot-devices/sentrius-mg100-gateway-lte-mnb-iot-and-bluetooth-5) board and a J-Link([programming guide](https://www.lairdconnect.com/documentation/user-guide-programming-mg100)).
+ 
 ### Installation
 
 1. Clone the repository:
