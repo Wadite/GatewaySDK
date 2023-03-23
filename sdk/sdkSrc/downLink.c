@@ -72,7 +72,7 @@ static void netReceiveMQTTPacketCallback(void * data, uint32_t length)
     DownLinkMsg * newDownLinkMsgPtr = NULL;
 
     assert(data && length);
-    
+
     payload = OsalMallocFromMemoryPool(length, s_downLinkMemPool);
     if(!payload)
     {
@@ -150,10 +150,7 @@ void createDownlinkJson(const char* ptr)
     {
 
 #ifdef DEBUG
-        char * debugString = cJSON_Print(downLinkJson);
-        assert(debugString);
-        LOG_DEBUG_INTERNAL("\nDownlink message : \n%s\n",debugString);
-        FreeJsonString(debugString);
+        LOG_DEBUG_INTERNAL("\nDownlink message : \n%s\n", ptr);
 #endif
 
         advJson(downLinkJson);
@@ -199,13 +196,24 @@ static char* mqttPackageRead(unsigned char* buf,int buflen)
 
 static void downLinkProcess(DownLinkMsg * rawDownLink)
 {
-    char * mqttPayload = NULL;
+    char *mqttPayload = rawDownLink->payload;
 
-    mqttPayload = mqttPackageRead(rawDownLink->payload, rawDownLink->sizeOfPayload);
+    //TODO remove. addded for debugging
+    if (rawDownLink->payload)
+    {
+        printk("downlink mqtt pkt:\nfirst 3 chars:|%c|%c|%c|\nfull pkt:|%s|\n", *rawDownLink->payload, *(rawDownLink->payload + 1), 
+            *(rawDownLink->payload + 2), rawDownLink->payload);
+    }
+    
+    // mqttPayload = mqttPackageRead(rawDownLink->payload, rawDownLink->sizeOfPayload);
 
     if(mqttPayload && IS_JSON(mqttPayload))
     {
         createDownlinkJson(mqttPayload);
+    }
+    else
+    {
+        printk("discarding downlink pkt...\n");
     }
 
     freeDownLinkMsg(rawDownLink);

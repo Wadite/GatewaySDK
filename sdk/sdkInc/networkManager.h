@@ -1,6 +1,14 @@
 #ifndef _NETWORK_MANAGER_H_
 #define _NETWORK_MANAGER_H_
 
+
+typedef enum{
+	CONN_STATE_DISCONNECTION,
+    CONN_STATE_CONNECTION,
+
+    CONN_STATE_NUM
+} eConnectionStates;
+
 /**
  * @brief Initialize the network manager module.
  * 

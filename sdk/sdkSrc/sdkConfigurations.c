@@ -666,7 +666,7 @@ SDK_STAT SendConfigurationToServer()
     const char * confStr = getConfigurationJsonString();
     const char * topic = GetMqttStatusTopic();
 
-    printk("#####json sent:\n%s\ntopic:%s\n#####SLEEP AND DONE#####\n", confStr, topic);
+    printk("Cfg json sent:\n%s\ntopic:%s\n", confStr, topic);
 
 	status = NetworkMqttMsgSend(topic, (char*)confStr, strlen(confStr));
 	FreeJsonString((char*)confStr);

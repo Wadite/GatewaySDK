@@ -33,16 +33,9 @@
 
 OSAL_CREATE_POOL(s_networkManagerMemPool, SIZE_OF_NETWORK_MANAGER_MEMORY);
 
-typedef enum{
-	CONN_STATE_DISCONNECTION,
-    CONN_STATE_CONNECTION,
-
-    CONN_STATE_NUM
-} eConnectionStates;
-
 static conn_handle s_connHandle = 0;
 static Queue_t s_queueOfNetworkManager = NULL;
-static bool s_isNetworkConnected = false;
+static bool s_isNetworkConnected = false; //TODO improve this, unify it with mqtt connected funcs
 static Mutex_t s_mqttMsgMutex = 0;
 static uint32_t s_accessTokenExpiry = 0;
 
@@ -56,16 +49,13 @@ static void changeConnStateCallback(conn_handle connHandle)
     SDK_STAT status = SDK_SUCCESS;
     eConnectionStates * connState = NULL;
 
-    assert(connHandle == s_connHandle);
-    
     connState = (eConnectionStates*)OsalMallocFromMemoryPool(sizeof(eConnectionStates), s_networkManagerMemPool);
     if(!connState)
     {
         return;
     }
 
-    //TODO set it according to callback getting different mqtt states. call this in the cb. will allow for later reconnection.
-    *connState = CONN_STATE_DISCONNECTION;
+    *connState = *(eConnectionStates *)connHandle;
 
     status = OsalQueueEnqueue(s_queueOfNetworkManager, connState, s_networkManagerMemPool);
     if(status != SDK_SUCCESS)
@@ -129,7 +119,7 @@ static SDK_STAT mqttFlow(Token refreshToken)
     return SDK_SUCCESS;
 }
 
-
+//TODO verify this
 static SDK_STAT reconnectToMqtt()
 {
     SDK_STAT status = SDK_SUCCESS;
@@ -162,8 +152,6 @@ static void reconnectionFlow()
     SDK_STAT status = SDK_SUCCESS;
     uint8_t attempts  = 0;
 
-    s_isNetworkConnected = false;
-    
     status = reconnectToMqtt();
     while((status != SDK_SUCCESS) && attempts < RECONNECTION_ATTEMPTS)
     {
@@ -198,7 +186,7 @@ static void networkManagerThreadFunc()
     status = SendConfigurationToServer();
     assert(SDK_SUCCESS == status);
 
-    // s_isNetworkConnected = true;
+    s_isNetworkConnected = true;
     while(true)
     {
         status = OsalQueueWaitForObject(s_queueOfNetworkManager, 
@@ -209,11 +197,15 @@ static void networkManagerThreadFunc()
         switch(*connState)
         {
             case CONN_STATE_DISCONNECTION:
+                s_isNetworkConnected = false;
                 printk("MQTT disconnected\n");
                 reconnectionFlow();
                 break;
 
             case CONN_STATE_CONNECTION:
+                s_isNetworkConnected = true;
+                break;
+
             case CONN_STATE_NUM:
                 break;
         }
@@ -278,7 +270,7 @@ SDK_STAT NetworkMqttMsgSend(const char* topic, void* pkt, uint32_t length)
     status = OsalMutexLock(s_mqttMsgMutex, 0);
     assert(status == SDK_SUCCESS);
     
-    if(IsConnectedToBrokerServer())
+    if(s_isNetworkConnected)
     {
         if(OsalGetTime() >= s_accessTokenExpiry)
         {
