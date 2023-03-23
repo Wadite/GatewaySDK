@@ -12,7 +12,7 @@
 #include "sdkUtils.h"
 #include "mqttTopics.h"
 #include "downLink.h"
-// #include "ca_certificate.h"
+#include "networkManager.h"
 
 #include <assert.h>
 #include <zephyr/kernel.h>
@@ -124,7 +124,7 @@
 #define MQTT_PUBLISH_TIME_RESPONSE			(1000)
 #define MQTT_ERROR_CODE_CONNECT				{32,2,0,0}
 #define MQTT_ERROR_CODE_SUBSCRIBE			{144,3,0,1,0}
-#define MQTT_CONNECT_TIMEOUT_MS             (30000)
+#define MQTT_CONNECT_TIMEOUT_MS             (60000)
 #define MQTT_INPUT_TIMEOUT_MS               (5000)
 
 #define K_LTE_TIMEOUT                       (K_SECONDS(80))
@@ -210,7 +210,7 @@ handleConnStateChangeCB s_receivedConnStateHandle = 0;
 static conn_handle s_connHandle = 0;
 static bool s_anyResponse = false;
 
-static bool is_network_ready = false;
+static bool s_isNetworkReady = false;
 
 static void iface_dns_added_evt_handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event,
                     struct net_if *iface)
@@ -220,7 +220,7 @@ static void iface_dns_added_evt_handler(struct net_mgmt_event_callback *cb, uint
         return;
     }
     printk("DNS ready\n");
-    is_network_ready = true;
+    s_isNetworkReady = true;
 }
 
 static void iface_up_evt_handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event,
@@ -241,7 +241,7 @@ static void iface_down_evt_handler(struct net_mgmt_event_callback *cb, uint32_t 
         return;
     }
     printk("Interface is down\n");
-    is_network_ready = false;
+    s_isNetworkReady = false;
 }
 
 static struct mgmt_events {
@@ -924,7 +924,7 @@ SDK_STAT NetworkInit()
 	status = ModemInit(modemReadCallback); /*the handler interrupr the send/recv system calls!*/
 	__ASSERT((status == SDK_SUCCESS),"ModemInit internal fail");
 
-    while (!is_network_ready)
+    while (!s_isNetworkReady)
     {
         printk("Waiting for network to be ready...\n");
         k_sleep(K_SECONDS(5));
@@ -945,24 +945,7 @@ SDK_STAT NetworkInit()
 
 bool IsNetworkAvailable()
 {
-	SDK_STAT status = SDK_SUCCESS;
-	bool isNetworkAvailable = false;
-	char responseBuffer[RESPONSE_BUFFER_SIZE] = {0};
-	bool currentLTEConfig = s_isLTEConfigurationDone;
-
-	s_isLTEConfigurationDone = false;
-
-	status = AtReadCmd(AT_CMD_CEREG);
-	__ASSERT((status == SDK_SUCCESS),"AtReadCmd internal fail");
-	status = atEnumToResponseString(AT_CMD_CEREG, responseBuffer, RESPONSE_BUFFER_SIZE);
-	__ASSERT((status == SDK_SUCCESS),"atEnumToResponseString internal fail");
-	status = modemResponseWait(responseBuffer, strlen(responseBuffer), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, false);
-
-	isNetworkAvailable = (strcmp(s_responseExtraPayload, MODEM_CEREG_SUCCESS_PAYLOAD) == 0) ? true : false;
-	s_isLTEConfigurationDone = currentLTEConfig;
-	
-	return isNetworkAvailable;
+	return s_isNetworkReady;
 }
 
 //TODO handle failures better. free memory, retry/reset.
@@ -1162,6 +1145,84 @@ static bool topicSubbed = false;
 static struct pollfd mqtt_fd;
 
 K_SEM_DEFINE(mqttConnectedSem, 0, 1);
+K_SEM_DEFINE(mqttPollStartSem, 0, 1);
+
+static void mqttPollingThreadFunc();
+
+OSAL_THREAD_CREATE(mqttPollingThread, mqttPollingThreadFunc, SIZE_OF_MQTT_POLLER_THREAD, THREAD_PRIORITY_HIGH);
+
+static bool isMqttConnected(void) //TODO unify with isConnectedToBrokerServer
+{
+    return mqttConnected;
+}
+
+static void setMqttConnected(bool status)
+{
+    mqttConnected = status;
+    eConnectionStates state = status ? CONN_STATE_CONNECTION : CONN_STATE_DISCONNECTION;
+    if (status == true)
+    {
+        k_sem_give(&mqttConnectedSem);
+    }
+    else
+    {
+        k_sem_reset(&mqttConnectedSem);
+    }
+    s_receivedConnStateHandle(&state); //this is changeconnstatecallback
+}
+
+#define WAIT_FOR_MQTT_RECONNECT(semaphore)  ({                                  \
+                                            k_sem_take(semaphore, K_FOREVER);   \
+                                            continue;                           \
+                                            })
+//TODO error handling instead of breaks. perhaps a k_sem_take with continue.
+static void mqttPollingThreadFunc()
+{
+    int rc;
+
+    k_sem_take(&mqttPollStartSem, K_FOREVER);
+
+    while (true)
+    {
+        rc = poll(&mqtt_fd, 1, mqtt_keepalive_time_left(&client));
+        if (rc < 0) 
+        {
+            printk("Warning: poll error %d.\n", errno);
+            if (!isMqttConnected() || errno == EBADF)
+            {
+                printk("Waiting for mqtt reconnection attempt..");
+                WAIT_FOR_MQTT_RECONNECT(&mqttPollStartSem);
+            }
+        }
+        else if (rc == 0) /* keepalive timeout reached */
+        {
+            rc = mqtt_live(&client);
+            if ((rc != 0) && (rc != -EAGAIN))
+            {
+                printk("(%s) Warning: mqtt_live  failed rc = %d %s\n", (__FUNCTION__),  rc, 
+                        rc == -ENOTCONN ? "(Socket is not connected)" : "");
+            }
+            continue;
+        }
+
+        if ((mqtt_fd.revents & POLLIN) == POLLIN)
+        {
+            rc = mqtt_input(&client);
+            if (rc != 0)
+            {
+                printk("(%s) Warning: mqtt_input %d\n", (__FUNCTION__), rc);
+            }
+        }
+        if ((mqtt_fd.revents & POLLERR) == POLLERR)
+        {
+            printk("(%s) POLLERR\n", (__FUNCTION__));
+        }
+        if ((mqtt_fd.revents & POLLNVAL) == POLLNVAL)
+        {
+            printk("(%s) POLLNVAL\n", (__FUNCTION__));
+        }
+    }
+}
 
 static bool isTopicSubbed(void)
 {
@@ -1173,47 +1234,26 @@ static void setTopicSubbed(bool status)
     topicSubbed = status;
 }
 
-static SDK_STAT getMqttInput(int miliseconds)
-{
-    int status;
-
-    status = poll(&mqtt_fd, 1, miliseconds);
-    if (status < 0)
-    {
-        printk("error polling, status %d, err %d\n", status, errno);
-        return SDK_FAILURE;
-    }
-    else if (status == 0)
-    {
-        printk("polling timed out, no mqtt input\n");
-        return SDK_TIMEOUT;
-    }
-
-    mqtt_input(&client);
-
-    return SDK_SUCCESS;
-}
-
-
 SDK_STAT SubscribeToTopic(char * topic)
 {
     int status;
-
 	struct mqtt_topic subscribe_topic = {
 		.topic = {
 			.utf8 = topic,
 			.size = strlen(topic)
 		},
 		.qos = MQTT_QOS_0_AT_MOST_ONCE
-                
 	};
-
 	const struct mqtt_subscription_list subscription_list = {
 		.list = &subscribe_topic,
 		.list_count = 1,
 		.message_id = 1234
 	};
 
+    if(isTopicSubbed())
+    {
+        return SDK_SUCCESS;
+    }
 	printk("Subscribing to: %s len %u\n", topic, strlen(topic));
 
     status = mqtt_subscribe(&client, &subscription_list);
@@ -1223,39 +1263,7 @@ SDK_STAT SubscribeToTopic(char * topic)
         return SDK_FAILURE;
     }
 
-    status = getMqttInput(MQTT_INPUT_TIMEOUT_MS);
-    if (status != SDK_SUCCESS)
-    {
-        printk("FAILED getting mqtt input, status %d\n", status);
-        return SDK_FAILURE;
-    }
-
-    if (!isTopicSubbed())
-    {
-        printk("FAILED subscribing to topic\n");
-        return SDK_FAILURE;
-    }
-
     return SDK_SUCCESS;
-}
-
-static bool isMqttConnected(void) //TODO unify with isConnectedToBrokerServer
-{
-    return mqttConnected;
-}
-
-static void setMqttConnected(bool status)
-{
-    mqttConnected = status;
-    if (status == true)
-    {
-        k_sem_give(&mqttConnectedSem);
-    }
-    else
-    {
-        k_sem_reset(&mqttConnectedSem);
-        // s_receivedConnStateHandle(&CONN_STATE_DISCONNECTIONS) TODO this and inside changeconnstatecallback
-    }
 }
 
 conn_handle IsConnectedToBrokerServer()
@@ -1268,6 +1276,7 @@ conn_handle IsConnectedToBrokerServer()
     return NULL;
 }
 
+//TODO finalize it (make a reboot function first probably)
 void mqttEventHandler(struct mqtt_client *client, const struct mqtt_evt *evt)
 {
 	int err;
@@ -1279,25 +1288,16 @@ void mqttEventHandler(struct mqtt_client *client, const struct mqtt_evt *evt)
             if (evt->result != 0)
             {
                 printk("###Mqtt connection failed, %d\n", evt->result);
-                //TODO error handle, reboot?
+                OsalSystemReset();
                 return;
             }
             setMqttConnected(true);
-
-            // if(isTopicSubbed() == false)
-            // {
-            //     err = SubscribeToTopic(sub_update_topic_id);
-            //     if (err != SDK_SUCCESS)
-            //     {
-            //         printk("MQTT subscribe failed!\n");
-            //     }
-            //     printk("'update' topic subscription attempted\n");
-            // }
+            SubscribeToTopic(sub_update_topic_id);
             break;
 
         case MQTT_EVT_DISCONNECT:
             setMqttConnected(false);
-            // printk("MQTT disconnected\n"); //try reconnecting if network is up?
+            setTopicSubbed(false);
             break;
 
         case MQTT_EVT_PUBLISH: 
@@ -1306,6 +1306,7 @@ void mqttEventHandler(struct mqtt_client *client, const struct mqtt_evt *evt)
             {
                 printk("###Mqtt publish failed. err %d, published message len > buffsize? %d\n", evt->result, 
                     publishLen > (PAYLOAD_BUF_SIZE - 1));
+                OsalSystemReset();
                 //TODO error handle, reboot?
                 return;
             }
@@ -1316,14 +1317,13 @@ void mqttEventHandler(struct mqtt_client *client, const struct mqtt_evt *evt)
                 //TODO error handle, reboot?
                 return;
             }
-            // payload_buf[publishLen] = '\0'; //necessary?
+            payload_buf[publishLen] = '\0'; //necessary? probably yes
             if (!IS_JSON_PREFIX(payload_buf))
             {
                 printk("Payload recieved is not identified as JSON(first char == %c\n", payload_buf[0]);
                 return;
             }
-            // printk("New Configuration or Action (%d Bytes) = \n%s\n", publishLen, payload_buf);
-            createDownlinkJson(payload_buf);
+            s_receivedMQTTPacketHandle(payload_buf, publishLen);
             break;
 
         case MQTT_EVT_PUBACK:
@@ -1333,7 +1333,6 @@ void mqttEventHandler(struct mqtt_client *client, const struct mqtt_evt *evt)
                 //TODO error handle, reboot?
                 return;
             }
-            // printk("[%s:%d] PUBACK packet id: %u", (__func__), __LINE__,	evt->param.puback.message_id);
             break;
 
         case MQTT_EVT_SUBACK:
@@ -1343,7 +1342,6 @@ void mqttEventHandler(struct mqtt_client *client, const struct mqtt_evt *evt)
                 //TODO error handle, reboot?
                 return;
             }
-            // printk("[%s:%d] Received MQTT Subscribe Acknowledge", (__func__), __LINE__);
             setTopicSubbed(true);
             break;
 
@@ -1369,7 +1367,7 @@ void mqttEventHandler(struct mqtt_client *client, const struct mqtt_evt *evt)
             break;
 
         default:
-            // printk("[%s:%d] Unsupported Event Type: %d", __func__, __LINE__, evt->type);
+            printk("[%s:%d] Unsupported Event Type: %d", __func__, __LINE__, evt->type);
             break;
 	}
 }
@@ -1574,13 +1572,6 @@ static SDK_STAT waitForMqttConnection()
 {
     int status;
 
-    status = getMqttInput(MQTT_CONNECT_TIMEOUT_MS);
-    if (status < 0)
-    {
-        printk("Could not get mqtt input, status %d, err %d\n", status, errno);
-        return SDK_FAILURE;
-    }
-
     status = k_sem_take(&mqttConnectedSem, K_MSEC(MQTT_CONNECT_TIMEOUT_MS));
     if (status != 0)
     {
@@ -1589,6 +1580,29 @@ static SDK_STAT waitForMqttConnection()
     }
 
     printk("MQTT connected successfully!\n");
+
+    return SDK_SUCCESS;
+}
+
+static SDK_STAT attemptMqttConnection()
+{
+    int rc = 0;
+    int attempts = 0;
+
+    rc = mqtt_connect(&client);
+    while (rc == -EIO && attempts < 5)
+    {
+        printk("mqtt connection failed, retrying...\n");
+        k_msleep(5000);
+        rc = mqtt_connect(&client);
+        ++attempts;
+    }
+    
+    if (rc != 0)
+    {
+        printk("mqtt_connect failed, err %d errno %d\n", rc, errno);
+        return SDK_FAILURE;
+    }
 
     return SDK_SUCCESS;
 }
@@ -1604,19 +1618,21 @@ conn_handle ConnectToServer()
         return NULL;
     }
 
-    rc = mqtt_connect(&client);
-    if (rc != 0)
+    if (SDK_SUCCESS != attemptMqttConnection())
     {
-        printk("mqtt_connect failed, err %d errno %d\n", rc, errno);
+        printk("Too many mqtt connection attempts failed, rebooting\n");
+        OsalSystemReset();
         return NULL;
     }
 
     setMqttFd();
+    k_sem_give(&mqttPollStartSem);
 
     rc = waitForMqttConnection();
     if (rc != SDK_SUCCESS)
     {
-        printk("ERROR Mqtt could not connect\n");
+        printk("ERROR Mqtt could not connect, rebooting\n");
+        OsalSystemReset();
         return NULL;
     }
 
@@ -1627,7 +1643,6 @@ conn_handle ConnectToServer()
 
 SDK_STAT NetSendMQTTPacket(const char* topic, void* pkt, uint32_t length)
 {
-	// static unsigned short packetId = 0; counters?
 	SDK_STAT status = SDK_SUCCESS;
     struct mqtt_publish_param param = {0};
 
@@ -1782,48 +1797,20 @@ SDK_STAT UpdateRefreshToken(Token refreshToken)
 
 SDK_STAT ReconnectToNetwork()
 {
-    SDK_STAT status = SDK_SUCCESS;
-	char responseBuffer[RESPONSE_BUFFER_SIZE] = {0};
-    AtCmndsParams cmndsParams = {0};
+    int attempts = 0;
+    SDK_STAT status;
 
-	cmndsParams.atCereg.status = NETWORK_REGISTRATION_ENABLE;
-	status = AtWriteCmd(AT_CMD_CEREG, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+    status = mdm_hl7800_reset();
+    if (status != 0)
+    {
+        printk("Failed resetting modem\n");
+    }
 
-	while(true)
-	{
-		status = AtReadCmd(AT_CMD_CEREG);
-		__ASSERT((status == SDK_SUCCESS),"AtReadCmd internal fail");
-		status = atEnumToResponseString(AT_CMD_CEREG, responseBuffer, RESPONSE_BUFFER_SIZE);
-		__ASSERT((status == SDK_SUCCESS),"atEnumToResponseString internal fail");
-		status = modemResponseWait(responseBuffer, strlen(responseBuffer), MODEM_WAKE_TIMEOUT);
-		RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-		if(strcmp(s_responseExtraPayload, MODEM_CEREG_SUCCESS_PAYLOAD) == 0)
-		{
-			break;
-		}
-
-		OsalSleep(TIME_TO_RETRY_CEREG_PAYLOAD);
-	}
-
-	status = AtReadCmd(AT_CMD_COPS);
-    __ASSERT((status == SDK_SUCCESS),"AtReadCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	status = AtExecuteCmd(AT_CMD_QCSQ);
-    __ASSERT((status == SDK_SUCCESS),"AtExecuteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	cmndsParams.atQlts.mode = QUERY_THE_CURRENT_LOCAL_TIME;
-	status = AtWriteCmd(AT_CMD_QLTS, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+    while (!s_isNetworkReady)
+    {
+        printk("Waiting for network to be ready...\n");
+        k_sleep(K_SECONDS(5));
+    }
 
     return SDK_SUCCESS;
 }

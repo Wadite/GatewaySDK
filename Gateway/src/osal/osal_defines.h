@@ -4,6 +4,7 @@
 //defines for downlink module
 #define SIZE_OF_DOWN_LINK_MEMORY_POOL       (2048)
 #define SIZE_OF_DOWN_LINK_THREAD            (2048) 
+#define SIZE_OF_MQTT_POLLER_THREAD          (512)
 //defines for logger module
 #define SIZE_OF_LOG_MEMORY_POOL         (4096)
 #define SIZE_OF_LOG_THREAD              (2048)
