@@ -663,12 +663,25 @@ static const char * getConfigurationJsonString()
 SDK_STAT SendConfigurationToServer()
 {
     SDK_STAT status = SDK_SUCCESS;
+    int attempts = 0;
     const char * confStr = getConfigurationJsonString();
     const char * topic = GetMqttStatusTopic();
 
-    printk("Cfg json sent:\n%s\ntopic:%s\n", confStr, topic);
+    do
+    {
+        status = NetworkMqttMsgSend(topic, (char*)confStr, strlen(confStr));
+        attempts++;
+    } while (status != SDK_SUCCESS && attempts < 5);
+    
+    if (status != SDK_SUCCESS)
+    {
+        printk("Failed sending GW configuration to server\n");
+    }
+    else
+    {
+        printk("Cfg json sent:\n%s\ntopic:%s\n", confStr, topic);
+    }
 
-	status = NetworkMqttMsgSend(topic, (char*)confStr, strlen(confStr));
 	FreeJsonString((char*)confStr);
 
     return status;

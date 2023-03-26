@@ -214,7 +214,6 @@ static void sendLastUpLinkMsg(UpLinkMsg * lastUpLinkMsg)
 
     status = NetworkMqttMsgSend(GetMqttUplinkTopic(), (void*) upLinkJson, strlen(upLinkJson));
 
-
     FreeJsonString(upLinkJson);
     freeMsgAndStruct(lastUpLinkMsg->payload, lastUpLinkMsg);
 }

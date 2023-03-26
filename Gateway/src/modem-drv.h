@@ -4,9 +4,6 @@
 #include <stdint.h>
 #include <sdk_common.h>
 
-void modemUnregCb();
-void printI();
-
 /**
  * @brief Function pointer for modem receive buffer received will have a '\0' at the end
  * 

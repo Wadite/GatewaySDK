@@ -151,13 +151,12 @@ static void reconnectionFlow()
 {
     SDK_STAT status = SDK_SUCCESS;
     uint8_t attempts  = 0;
-
-    status = reconnectToMqtt();
-    while((status != SDK_SUCCESS) && attempts < RECONNECTION_ATTEMPTS)
+    
+    do
     {
-        attempts++;
         status = reconnectToMqtt();
-    }
+        attempts++;
+    } while((status != SDK_SUCCESS) && attempts < RECONNECTION_ATTEMPTS);
 
     if(attempts == RECONNECTION_ATTEMPTS && status != SDK_SUCCESS)
     {
@@ -167,9 +166,8 @@ static void reconnectionFlow()
     else
     {
         printk("Reconnected to mqtt successfully\n");
+        s_isNetworkConnected = true;
     }
-
-    s_isNetworkConnected = true;
 }
 
 static void networkManagerThreadFunc()
@@ -178,15 +176,18 @@ static void networkManagerThreadFunc()
     eConnectionStates * connState = NULL;
 
     status = fullConnectionInit();
-    assert(SDK_SUCCESS == status);
+    RESET_ON_FAIL(status, SDK_SUCCESS);
+    // assert(SDK_SUCCESS == status);
+    s_isNetworkConnected = true;
 
-    status = SubscribeToTopic((char*)GetMqttDownlinkTopic());
-    assert(SDK_SUCCESS == status);
+    status = SubscribeToTopic(GetMqttDownlinkTopic()); // this might be removed
+    RESET_ON_FAIL(status, SDK_SUCCESS);
+    // assert(SDK_SUCCESS == status);
 
     status = SendConfigurationToServer();
-    assert(SDK_SUCCESS == status);
+    RESET_ON_FAIL(status, SDK_SUCCESS);
+    // assert(SDK_SUCCESS == status);
 
-    s_isNetworkConnected = true;
     while(true)
     {
         status = OsalQueueWaitForObject(s_queueOfNetworkManager, 
@@ -264,7 +265,6 @@ SDK_STAT NetworkManagerInit()
 
 SDK_STAT NetworkMqttMsgSend(const char* topic, void* pkt, uint32_t length)
 {
-#if 1 // implement mqtt
     SDK_STAT status = SDK_SUCCESS;
 
     status = OsalMutexLock(s_mqttMsgMutex, 0);
@@ -289,6 +289,5 @@ SDK_STAT NetworkMqttMsgSend(const char* topic, void* pkt, uint32_t length)
     status = OsalMutexUnlock(s_mqttMsgMutex);
     assert(status == SDK_SUCCESS);
 
-#endif
     return SDK_SUCCESS;
 }

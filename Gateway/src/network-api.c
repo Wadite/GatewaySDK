@@ -196,20 +196,14 @@ typedef struct{
 
 static struct k_event s_responseEvent;
 static char s_response[MAX_RESPONSE_SIZE];
-static CallbackStruct s_callbackStruct;
 static cJSON *s_lastJson = NULL;
 static char s_accessToken[SIZE_OF_ACCESS_TOKEN_FULL + 1] = {0};
 static char s_refreshToken[SIZE_OF_REFRESH_TOKEN + 1] = {0};
-static char s_responseExtraPayload[SIZE_OF_RESPONSE_PAYLOAD + 1] = {0};
-static bool s_isLTEConfigurationDone = false;
-static unsigned char s_mqttPacketBuff[MQTT_MAX_PACKET_SIZE] = {0};
 static char s_addressStringBuffer[SIZE_OF_ADDRESS_BUFFER] = {0};
 static char s_requestBuffer[MAX_REQUEST_SIZE] = {0};
 NetMQTTPacketCB s_receivedMQTTPacketHandle = 0;
 handleConnStateChangeCB s_receivedConnStateHandle = 0;
 static conn_handle s_connHandle = 0;
-static bool s_anyResponse = false;
-
 static bool s_isNetworkReady = false;
 
 static void iface_dns_added_evt_handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event,
@@ -266,9 +260,6 @@ static void setup_iface_events(void)
         net_mgmt_add_event_callback(&iface_events[i].cb);
     }
 }
-
-K_SEM_DEFINE(lteConnectedSem, 0, 1);
-
 
 static char * getUrlExtGateWayOwn(char * buff) 
 {
@@ -334,100 +325,6 @@ static char * getBodyRegDevCodePre(char * buff)
     offset += sprintf(buff + offset, "\",\r\n    \"deviceCode\": \"");
 
     return buff; 
-}
-
-static void connectionStateChangeProcess()
-{
-	s_receivedConnStateHandle(s_connHandle);
-}
-
-// TODO this happens in the mqtteventhandler
-static void postConnectionMessageProcess(uint8_t* buff, uint16_t buffSize)
-{
-	static bool incommingServerMsg = false;
-
-	if(strncmp(MQTT_BROKER_RESPONSE_STRING, buff, strlen(MQTT_BROKER_RESPONSE_STRING)) == 0)
-	{
-		incommingServerMsg = true;
-	}
-	else if(strncmp(MQTT_BROKER_CLOSED_STRING, buff, strlen(MQTT_BROKER_CLOSED_STRING)) == 0)
-	{
-		s_isLTEConfigurationDone = false;
-		connectionStateChangeProcess();
-	}
-	else if(incommingServerMsg && s_receivedMQTTPacketHandle)
-	{
-		s_receivedMQTTPacketHandle(buff,buffSize);
-		incommingServerMsg = false;
-	}
-}
-
-static void modemReadCallback(uint8_t* buff, uint16_t buffSize)
-{	
-	if(s_isLTEConfigurationDone)
-	{
-		postConnectionMessageProcess(buff, buffSize);
-	}
-
-	else
-	{
-		// Verify if received Json
-		if(IS_JSON_PREFIX(buff))
-		{
-			char * cJsonString = NULL;
-			// Don't forget to free 
-			s_lastJson = cJSON_Parse(buff);
-
-			cJsonString = cJSON_Print(s_lastJson);
-            LOG_DEBUG_INTERNAL("%s\r\n",cJsonString);
-			printk("%s\r\n",cJsonString);
-			FreeJsonString(cJsonString);
-		}
-		else
-		{
-			LOG_DEBUG_INTERNAL("%s\r\n",buff);
-			printk("%s\r\n",buff);
-		}
-	}
-
-	if(IS_WAITED_WORD(buff,s_callbackStruct.cmprWord, s_callbackStruct.wordSize))
-	{
-		if((buffSize > s_callbackStruct.wordSize) && ((buffSize - s_callbackStruct.wordSize) < SIZE_OF_RESPONSE_PAYLOAD))
-		{	
-			sprintf(s_responseExtraPayload, "%s", (buff + s_callbackStruct.wordSize));
-		}
-		k_event_post(&s_responseEvent, RESPONSE_EVENT_BIT_SET);
-	}
-    else if(true == s_anyResponse)
-    {
-		if((buffSize >= IMEI_LEN) && (buffSize < SIZE_OF_RESPONSE_PAYLOAD))
-		{	
-			sprintf(s_responseExtraPayload, "%s", buff);
-            s_anyResponse = false;
-		}
-		k_event_post(&s_responseEvent, RESPONSE_EVENT_BIT_SET);
-    }
-}
-
-static inline SDK_STAT modemResponseWait(char * waitWord, size_t wordSize, uint32_t timeToWait)
-{
-	uint32_t waitEventState = 0;
-
-	if(!waitWord || wordSize == 0)
-	{
-		return SDK_INVALID_PARAMS;
-	}
-
-	s_callbackStruct.cmprWord = waitWord;
-	s_callbackStruct.wordSize = wordSize;
-	waitEventState = k_event_wait(&s_responseEvent, RESPONSE_EVENT_BIT_SET, true, K_MSEC(timeToWait));
-
-	if(waitEventState == 0)
-	{
-		return SDK_TIMEOUT;
-	}
-
-	return SDK_SUCCESS;
 }
 
 //TODO fit current conventions (status, initialize etc)
@@ -523,7 +420,8 @@ typedef enum{
     REGISTER_CONNECTION_GW,
     VALIDATE_AND_GET_REFRESH_TOKEN,
     UPDATE_ACCESS_TOKEN,
-    REQUEST_GOAL_NUM,
+
+    REQUEST_GOALS_NUM,
 }eRequestGoal;
 
 static int setRequestBuffer(eHttpMsgType msgType, eRequestGoal goal, void *requestParams) //TODO improve this to an array for better runtime
@@ -554,6 +452,8 @@ static int setRequestBuffer(eHttpMsgType msgType, eRequestGoal goal, void *reque
         case UPDATE_ACCESS_TOKEN:
             status = sprintf(s_requestBuffer, UPDATE_TOKEN_REQUEST, (char *)requestParams);
             break;
+        default:
+            printk("Unknown request goal\n");
     }
 
     if (status < 0)
@@ -658,45 +558,6 @@ static int sendHttpRequest(eHttpMsgType msgType, eRequestGoal msgGoal, void *req
     {
         freeaddrinfo(res);
     }
-
-	return SDK_SUCCESS;
-}
-
-static SDK_STAT sentAndReadHttpMsg(AtCmndsParams cmndsParams, eAtCmds atCmd, char* httpMsgString)
-{
-	SDK_STAT status = SDK_SUCCESS;
-	char responseBuffer[RESPONSE_BUFFER_SIZE] = {0};
-
-	__ASSERT(atCmd == AT_CMD_QHTTPPOST || atCmd == AT_CMD_QHTTPPUT,"sentAndReadHttpMsg not http cmd");
-	status = AtWriteCmd(atCmd, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MODEM_HTTP_URL_VERIFY_WORD, strlen(MODEM_HTTP_URL_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-    if (status != SDK_SUCCESS)
-    {
-        printk("qhttp put/post %d\n", status);
-        OsalSleep(MODEM_WAKE_TIMEOUT);
-        status = AtWriteCmd(atCmd, &cmndsParams);
-        status = modemResponseWait(MODEM_HTTP_URL_VERIFY_WORD, strlen(MODEM_HTTP_URL_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-        printk("qhttp put/post 2nd attempt %d\n", status);
-    }
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-	ModemSend(httpMsgString, strlen(httpMsgString));
-	status = modemResponseWait(MODEM_RESPONSE_VERIFY_WORD, strlen(MODEM_RESPONSE_VERIFY_WORD), MODEM_WAKE_TIMEOUT);
-    printk("httpmsgstring %d\n", status);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-	status = atEnumToResponseString(atCmd, responseBuffer, RESPONSE_BUFFER_SIZE);
-	__ASSERT((status == SDK_SUCCESS),"atEnumToResponseString internal fail");
-	status = modemResponseWait(responseBuffer, strlen(responseBuffer), MODEM_WAKE_TIMEOUT);
-    printk("responsegetting %d\n", status);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	status = AtWriteCmd(AT_CMD_QHTTPREAD, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = atEnumToResponseString(AT_CMD_QHTTPREAD, responseBuffer, RESPONSE_BUFFER_SIZE);
-	__ASSERT((status == SDK_SUCCESS),"atEnumToResponseString internal fail");
-	status = modemResponseWait(responseBuffer, strlen(responseBuffer), MODEM_WAKE_TIMEOUT);
-    printk("qhttpread %d\n", status);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
 	return SDK_SUCCESS;
 }
@@ -921,10 +782,10 @@ SDK_STAT NetworkInit()
 
     setup_iface_events();
 
-	status = ModemInit(modemReadCallback); /*the handler interrupr the send/recv system calls!*/
+	status = ModemInit(NULL); /*the handler interrupr the send/recv system calls!*/
 	__ASSERT((status == SDK_SUCCESS),"ModemInit internal fail");
 
-    while (!s_isNetworkReady)
+    while (!IsNetworkAvailable())
     {
         printk("Waiting for network to be ready...\n");
         k_sleep(K_SECONDS(5));
@@ -1023,91 +884,6 @@ SDK_STAT UpdateAccessToken(Token refreshToken, Token * accessToken, uint32_t * a
     return status;
 }
 
-static SDK_STAT openSSLLink()
-{
-	SDK_STAT status = SDK_SUCCESS;
-	const char * mqttServerPtr = NULL;
-	char responseBuffer[RESPONSE_BUFFER_SIZE] = {0};
-    AtCmndsParams cmndsParams = {0};
-
-	status = GetMqttServer(&mqttServerPtr);
-	assert(status == SDK_SUCCESS);
-
-	cmndsParams.atQsslopen.pdpctxId = MQTT_PDP_CTX_ID;
-	cmndsParams.atQsslopen.sslctxId = MQTT_SSL_CTX_ID;
-	cmndsParams.atQsslopen.clientId = MQTT_CLIENT_IDX;
-	cmndsParams.atQsslopen.serverAddr = mqttServerPtr;
-	cmndsParams.atQsslopen.serverPort = MQTT_SERV_PORT;
-	cmndsParams.atQsslopen.accessMode = MQTT_ACCESS_BUFFER_ACCESS;
-
-	status = AtWriteCmd(AT_CMD_QSSLOPEN, &cmndsParams);
-    printk("qsslopen in openssllink %d\n", status);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = atEnumToResponseString(AT_CMD_QSSLOPEN, responseBuffer, RESPONSE_BUFFER_SIZE);
-    printk("atenumtoresponsestring in openssllink %d\n", status);
-	__ASSERT((status == SDK_SUCCESS),"atEnumToResponseString internal fail");
-	status = modemResponseWait(responseBuffer, strlen(responseBuffer), MODEM_WAKE_TIMEOUT);	
-    printk("responsebuffer in openssllink %d\n", status);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	return SDK_SUCCESS;
-}
-
-static SDK_STAT sendSSLPacket(int clientId, int packetLength)
-{
-	SDK_STAT status = SDK_SUCCESS;
-    AtCmndsParams cmndsParams = {0};
-
-	if(packetLength == 0)
-	{
-		return SDK_INVALID_PARAMS;
-	}
-
-	cmndsParams.atQsslsend.clientId = clientId;
-	cmndsParams.atQsslsend.payloadLength = packetLength;
-
-	status = AtWriteCmd(AT_CMD_QSSLSEND, &cmndsParams);
-    __ASSERT((status == SDK_SUCCESS),"AtWriteCmd internal fail");
-	status = modemResponseWait(MQTT_INPUT_STRING, strlen(MQTT_INPUT_STRING), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-	ModemSend(s_mqttPacketBuff,packetLength);
-	status = modemResponseWait(MQTT_BROKER_RESPONSE_STRING, strlen(MQTT_BROKER_RESPONSE_STRING), MODEM_WAKE_TIMEOUT);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
-
-	return SDK_SUCCESS;
-}
-
-static SDK_STAT connectToSSL()
-{
-	int len = 0;
-	SDK_STAT status = SDK_SUCCESS;
-	const char * gateWayNamePtr = NULL;
-	const char * accountIdPtr = NULL;
-	MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
-	uint8_t errCode[] = MQTT_ERROR_CODE_CONNECT;
-
-	status = GetGatewayId(&gateWayNamePtr);
-	assert(status == SDK_SUCCESS);
-
-	status = GetAccountID(&accountIdPtr);
-	assert(status == SDK_SUCCESS);
-
-	data.clientID.cstring = (char *)gateWayNamePtr;
-	data.keepAliveInterval = MQTT_KEEP_ALIVE_INTERVAL;
-	data.cleansession = MQTT_CLEAN_SESSION;
-	data.username.cstring = (char *)accountIdPtr;
-	data.password.cstring = (char *)s_accessToken; // here acceess token
-
-	len = MQTTSerialize_connect(s_mqttPacketBuff, sizeof(s_mqttPacketBuff), &data);
-	__ASSERT(len,"MQTTSerialize_connect internal fail");
-
-	status = sendSSLPacket(MQTT_CLIENT_IDX, len);
-	__ASSERT((status == SDK_SUCCESS),"sendSslPacket internal fail");
-
-	status = modemResponseWait((char*)errCode, sizeof(errCode), MODEM_WAKE_TIMEOUT);
-	return status;
-}
-
 /* Buffers for MQTT client */
 #define RX_BUF_SIZE      (2048)
 #define TX_BUF_SIZE      (4096)
@@ -1123,13 +899,13 @@ static uint8_t rx_buffer[RX_BUF_SIZE] = {0};
 static uint8_t tx_buffer[TX_BUF_SIZE] = {0};
 static uint8_t payload_buf[PAYLOAD_BUF_SIZE] = {0};
 
-uint8_t *pub_data_topic_id;
-uint8_t *pub_status_topic_id;
-uint8_t *sub_update_topic_id;
-uint8_t *mqtt_client_id;
-uint8_t *mqtt_user;
-uint8_t *mqtt_uri;
-uint8_t *mqtt_pw;
+const char *pub_data_topic_id;
+const char *pub_status_topic_id;
+const char *sub_update_topic_id;
+const char *mqtt_client_id;
+const char *mqtt_user;
+const char *mqtt_uri;
+const char *mqtt_pw;
 uint32_t mqtt_port;
 
 struct mqtt_utf8 username;
@@ -1234,7 +1010,7 @@ static void setTopicSubbed(bool status)
     topicSubbed = status;
 }
 
-SDK_STAT SubscribeToTopic(char * topic)
+SDK_STAT SubscribeToTopic(const char * topic)
 {
     int status;
 	struct mqtt_topic subscribe_topic = {
@@ -1250,17 +1026,17 @@ SDK_STAT SubscribeToTopic(char * topic)
 		.message_id = 1234
 	};
 
-    if(isTopicSubbed())
+    if(!isTopicSubbed())
     {
-        return SDK_SUCCESS;
-    }
-	printk("Subscribing to: %s len %u\n", topic, strlen(topic));
+        printk("Subscribing to: %s len %u\n", topic, strlen(topic));
 
-    status = mqtt_subscribe(&client, &subscription_list);
-    if (status != 0)
-    {
-        printk("mqtt_subscribe FAILED, status %d\n", status);
-        return SDK_FAILURE;
+        status = mqtt_subscribe(&client, &subscription_list);
+        if (status != 0)
+        {
+            printk("mqtt_subscribe FAILED, status %d\n", status);
+            return SDK_FAILURE;
+        }
+        setTopicSubbed(true);
     }
 
     return SDK_SUCCESS;
@@ -1268,7 +1044,7 @@ SDK_STAT SubscribeToTopic(char * topic)
 
 conn_handle IsConnectedToBrokerServer()
 {
-    if (isMqttConnected() && isTopicSubbed())
+    if (IsNetworkAvailable() && isMqttConnected())
     {
         return (conn_handle)1;
     }
@@ -1280,7 +1056,6 @@ conn_handle IsConnectedToBrokerServer()
 void mqttEventHandler(struct mqtt_client *client, const struct mqtt_evt *evt)
 {
 	int err;
-    cJSON * cloud_config_json = NULL;
 
 	switch (evt->type)
     {
@@ -1374,7 +1149,6 @@ void mqttEventHandler(struct mqtt_client *client, const struct mqtt_evt *evt)
 
 static int setMqttCredentials(void)
 {
-    const char *gatewayId = NULL;
     SDK_STAT status = SDK_SUCCESS;
 
     status = GetGatewayId(&mqtt_client_id);
@@ -1414,9 +1188,9 @@ static int setMqttCredentials(void)
 
 static int setMqttTopics(void)
 {
-    pub_data_topic_id = GetMqttDownlinkTopic();
+    pub_data_topic_id = GetMqttUplinkTopic();
     pub_status_topic_id = GetMqttStatusTopic();
-    sub_update_topic_id = GetMqttUplinkTopic();
+    sub_update_topic_id = GetMqttDownlinkTopic();
 
     printk("MQTT Publish Data Topic = %s (%d Bytes)\n", (pub_data_topic_id), strlen(pub_data_topic_id));
     printk("MQTT Publish Status Topic = %s (%d Bytes)\n", (pub_status_topic_id), strlen(pub_status_topic_id));
@@ -1797,7 +1571,6 @@ SDK_STAT UpdateRefreshToken(Token refreshToken)
 
 SDK_STAT ReconnectToNetwork()
 {
-    int attempts = 0;
     SDK_STAT status;
 
     status = mdm_hl7800_reset();
@@ -1806,7 +1579,7 @@ SDK_STAT ReconnectToNetwork()
         printk("Failed resetting modem\n");
     }
 
-    while (!s_isNetworkReady)
+    while (!IsNetworkAvailable())
     {
         printk("Waiting for network to be ready...\n");
         k_sleep(K_SECONDS(5));

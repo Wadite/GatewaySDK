@@ -171,29 +171,6 @@ void createDownlinkJson(const char* ptr)
     cJSON_Delete(downLinkJson);
 }
 
-static char* mqttPackageRead(unsigned char* buf,int buflen)
-{
-    unsigned char dup = 0;
-    int qos = 0;
-    unsigned char retained = 0;
-    unsigned short packetid = 0;
-    MQTTString topicName = {0};
-    unsigned char * payload = NULL;
-    int payloadlen = 0;
-    int err = 0;
-
-    err = MQTTDeserialize_publish(&dup, &qos, &retained, &packetid, &topicName,
-		                            &payload, &payloadlen, buf, buflen);
-
-    if(err != MQTT_SUCCESS_READ)
-    {
-        OsalFreeFromMemoryPool(payload, s_downLinkMemPool);
-        return NULL;
-    }
-
-    return (char*)payload;
-}
-
 static void downLinkProcess(DownLinkMsg * rawDownLink)
 {
     char *mqttPayload = rawDownLink->payload;
@@ -204,8 +181,6 @@ static void downLinkProcess(DownLinkMsg * rawDownLink)
         printk("downlink mqtt pkt:\nfirst 3 chars:|%c|%c|%c|\nfull pkt:|%s|\n", *rawDownLink->payload, *(rawDownLink->payload + 1), 
             *(rawDownLink->payload + 2), rawDownLink->payload);
     }
-    
-    // mqttPayload = mqttPackageRead(rawDownLink->payload, rawDownLink->sizeOfPayload);
 
     if(mqttPayload && IS_JSON(mqttPayload))
     {
