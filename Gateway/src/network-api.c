@@ -927,7 +927,8 @@ static void mqttPollingThreadFunc()
         }
         if ((mqtt_fd.revents & POLLNVAL) == POLLNVAL)
         {
-            printk("(%s) POLLNVAL\n", (__FUNCTION__));
+            printk("(%s) POLLNVAL, resetting..\n", (__FUNCTION__));
+            OsalSystemReset();
         }
     }
 }
