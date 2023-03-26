@@ -7,7 +7,6 @@
 #include "network-api.h"
 #include "cJSON.h"
 #include "sdkConfigurations.h"
-#include "MQTTPacket.h"
 #include "mqttTopics.h"
 #include "williotSdkJson.h"
 #include "sdkUtils.h"

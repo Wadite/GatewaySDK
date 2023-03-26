@@ -1,11 +1,8 @@
 #include "network-api.h"
-#include "at-commands.h"
 #include "modem-drv.h"
 #include "cJSON.h"
-#include "httpStringBuilder.h"
 #include "williotSdkJson.h"
 #include "osal.h"
-#include "MQTTPacket.h"
 #include "sdkConfigurations.h"
 #include "logger.h"
 #include "flash-drv.h"
@@ -136,6 +133,13 @@ static const char wlt_cert[] = {
 };
 
 static bool verifyConnectionResponse();
+
+typedef enum{
+    HTTP_MSG_TYPE_POST,
+    HTTP_MSG_TYPE_PUT,
+
+    HTTP_MSG_TYPE_NUM
+}eHttpMsgType;
 
 typedef enum{
         TLS_PEER_VERIFICATION_NONE     = 0,
