@@ -139,7 +139,6 @@ static void advJson(cJSON * advJson)
     }
 }
 
-//TODO error handling, make it SDK fitting, better func name (it is equivalent to update_json_config_file on LTE)
 void createDownlinkJson(const char* ptr)
 {
     SDK_STAT status = SDK_SUCCESS;
@@ -175,12 +174,13 @@ static void downLinkProcess(DownLinkMsg * rawDownLink)
 {
     char *mqttPayload = rawDownLink->payload;
 
-    //TODO remove. addded for debugging
+#ifdef DEBUG
     if (rawDownLink->payload)
     {
         printk("downlink mqtt pkt:\nfirst 3 chars:|%c|%c|%c|\nfull pkt:|%s|\n", *rawDownLink->payload, *(rawDownLink->payload + 1), 
             *(rawDownLink->payload + 2), rawDownLink->payload);
     }
+#endif
 
     if(mqttPayload && IS_JSON(mqttPayload))
     {

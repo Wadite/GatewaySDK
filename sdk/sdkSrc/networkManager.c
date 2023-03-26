@@ -35,7 +35,7 @@ OSAL_CREATE_POOL(s_networkManagerMemPool, SIZE_OF_NETWORK_MANAGER_MEMORY);
 
 static conn_handle s_connHandle = 0;
 static Queue_t s_queueOfNetworkManager = NULL;
-static bool s_isNetworkConnected = false; //TODO improve this, unify it with mqtt connected funcs
+static bool s_isNetworkConnected = false;
 static Mutex_t s_mqttMsgMutex = 0;
 static uint32_t s_accessTokenExpiry = 0;
 
@@ -119,7 +119,6 @@ static SDK_STAT mqttFlow(Token refreshToken)
     return SDK_SUCCESS;
 }
 
-//TODO verify this
 static SDK_STAT reconnectToMqtt()
 {
     SDK_STAT status = SDK_SUCCESS;

@@ -33,50 +33,20 @@
 #include <string.h>
 #include <limits.h>
 
-#define STR_HELPER(x)						#x
-#define INT_TO_STR(x) 						STR_HELPER(x)
-
-#define SIZE_OF_COMPARE_STRING				(128)
-#define MODEM_WAKE_TIMEOUT					(40000)/*30000*/
-#define AT_CMD_TIMEOUT						(1000)
-#define RESPONSE_EVENT_BIT_SET				(0x001)
-
 #define IS_JSON_PREFIX(buff)			  	(*(buff) == '{')
-#define IS_WAITED_WORD(word,cmpWord,size)	(memcmp((word), (cmpWord), (size)) == 0)
 #define IS_NO_REFRESH_TOKEN(buff,zeros)		(memcmp((buff),(zeros),sizeof((buff))) == 0)
 
-#define SEARCHING_SEQUENCE					"020202"
-#define TAKE_EFFECT_IMMEDIATELY				(1)
-#define SCAN_MODE_GSM_ONLY					"0"
-#define NETWORK_CATEGORY_EMTC				"0"
-#define PDP_CONTEXT_IDENTIFIER				(1)
-#define ACCESS_POINT_NAME					"uinternet"
-
-#define NETWORK_AVAILABLE_CONTEX_ID 		(1)
-#define ADDRESS_TO_PING 					"www.google.com"
-#define MODEM_RESPONSE_VERIFY_WORD			"OK"
-#define IMEI_LEN                            (15)
-#define MODEM_HTTP_URL_VERIFY_WORD			"CONNECT"
-#define MODEM_READY_VERITY_WORD				"APP RDY"
-#define MODEM_CEREG_SUCCESS_PAYLOAD			" 1,1"
-#define TIME_TO_RETRY_CEREG_PAYLOAD			(10000)
-
-#define RESPONSE_BUFFER_SIZE				(50)
 #define API_SEC_KEY						    "Yjk2MjAyY2ItMDcyZi00NzRiLThmNjMtOTMyOTA5N2IxOTg1OnhJNUhHSC1KcXZxNGN6NzVsZFYwUDY4Ul8xXzg3Q1lFRGl3RVJMcFJ6dlU="
 /*wiliot prod"MTRlNzAwMjItZTNiNi00ODZjLThkOTQtM2ZmZTk3MTEyM2NjOlFxMXR3THlvRzNSbkRiTm51ZVV3Uk9BeElSUlVxa3pJV0RrLW55NmZLQ3c="*/
 /*tandem test:"NTUxNTU1YzAtZTUwNS00MDUwLTlmMzItYTllOTM0MjIyYTQzOm9CUFVITERrSzFZMDNQSEU1Q3Q5QWxJWHk2QzZFMU51aGZBM2M5aGNtazA="*/
 #define CONNECTION_TOKEN_TYPE				"Bearer"
-#define HTTP_SEND_RECEIVE_TIMEOUT			(80)
 #define SIZE_OF_ACCESS_CONNECTION_TOKEN		(1251)
 #define SIZE_OF_DEVICE_CODE					(43)
 #define SIZE_OF_USER_CODE					(6)
-#define HTTP_CONFIG_CONTEX_ID				(1)
-#define HTTP_CONFIG_REQUEST_HEADER			(1)
 #define SIZE_OF_ACCESS_TOKEN_FIRST			(929)
 #define SIZE_OF_ACCESS_TOKEN_FULL			(SIZE_OF_ACCESS_TOKEN_FIRST + 21)
 #define SIZE_OF_REFRESH_TOKEN				(54)		
 #define TIME_TO_RETRY_TOKEN_RECEIVE			(5000)
-#define SIZE_OF_RESPONSE_PAYLOAD			(20)
 #define SIZE_OF_ADDRESS_BUFFER				(256)
 #define CONNECTION_HANDLE					(1)
 
@@ -97,35 +67,25 @@
 #define URL_EXT_UPDATE_ACCESS				/*"/test*/"/v1/gateway/refresh?refresh_token="
 #define URL_PRE_REGISTER                    /*"/test*/"/v1/owner/" 
 
-#define MAX_BODY_SIZE_DIGITS_NUM			(5)
 #define BODY_GATEWAY(buff)					getBodyGateWay((buff))
 #define BODY_REG_USR_CODE_PRE(buff)			getBodyRegUsrCodePre((buff))
 #define BODY_REG_DEV_CODE_PRE(buff)			getBodyRegDevCodePre((buff))
 #define BODY_REG_POST						"\"\r\n}"
 
-#define MQTT_MAX_PACKET_SIZE				(1024)
-#define MQTT_PDP_CTX_ID						(1)
-#define MQTT_SSL_CTX_ID						(0)
+#define MQTT_MAX_PACKET_SIZE				(1024)  // TODO optimize rx/tx sizes
 #define MQTT_CLIENT_IDX_INTERNAL			0		// This is on purpose
 #define MQTT_CLIENT_IDX						(MQTT_CLIENT_IDX_INTERNAL)
 #define MQTT_SERV_PORT						(8883)
-#define MQTT_INPUT_STRING					"> "
-#define MQTT_BROKER_RESPONSE_STRING			"+QSSLURC: \"recv\"," INT_TO_STR(MQTT_CLIENT_IDX_INTERNAL)
-#define MQTT_BROKER_CLOSED_STRING			"+QSSLURC: \"closed\"," INT_TO_STR(MQTT_CLIENT_IDX_INTERNAL)
-#define MQTT_GOOD_PUBLISH_RESPOSE			"SEND OK"
-#define MQTT_RECEIVE_LENGTH					(1500)
-#define MQTT_KEEP_ALIVE_INTERVAL			(60)
-#define MQTT_CLEAN_SESSION					(1)
-#define MQTT_CONNECT_FOOTER_CHAR			(32)
-#define MQTT_SUBSCRIBE_FOOTER_CHAR			(144)
-#define MQTT_PACKET_DEFAULT_DUP				(0)
 #define MQTT_PACKET_DEFAULT_QOS				(MQTT_QOS_0_AT_MOST_ONCE)
-#define MQTT_PACKET_DEFAULT_FLAG			(0)
-#define MQTT_PUBLISH_TIME_RESPONSE			(1000)
-#define MQTT_ERROR_CODE_CONNECT				{32,2,0,0}
-#define MQTT_ERROR_CODE_SUBSCRIBE			{144,3,0,1,0}
 #define MQTT_CONNECT_TIMEOUT_MS             (60000)
-#define MQTT_INPUT_TIMEOUT_MS               (5000)
+#define RX_BUF_SIZE      (2048)
+#define TX_BUF_SIZE      (4096)
+#define PAYLOAD_BUF_SIZE (1024)
+#define MQTT_TOPIC_ID_MAX_SIZE              (64)
+#define MQTT_USER_MAX_SIZE                  (64)
+#define MQTT_CLIENT_ID_MAX_SIZE             (64)
+#define MQTT_BROKER_URI_MAX_SIZE            (128)
+#define MQTT_PASSOWRD_MAX_SIZE              (2048)
 
 #define K_LTE_TIMEOUT                       (K_SECONDS(80))
 #define HTTPS_PORT                          "443"
@@ -134,6 +94,7 @@
 #define MAX_RESPONSE_SIZE                   (4096)
 #define CA_CERTIFICATE_TAG                  (42)
 
+/* HTTPS Requests templates */
 #define GET_TOKEN_REQUEST "POST " URL_EXT_ACCESS_TOKEN " HTTP/1.1\r\n"\
         "Host: " SHORT_URL "\r\n"\
         "Connection: close\r\n"\
@@ -151,7 +112,6 @@
 #define GET_CODES_REQUEST "POST " URL_EXT_DEVICE_AUTH " HTTP/1.1\r\n"\
         "Host: " SHORT_URL "\r\n\r\n"\
 
-/* register_connection_request is the same as getconnectionaccessandrefreshtoken request*/
 #define REGISTER_CONNECTION_REQUEST "POST " URL_EXT_REG_GATEWAY " HTTP/1.1\r\n"\
         "Host: " SHORT_URL "\r\n"\
         "Content-length: %d\r\n"\
@@ -171,6 +131,10 @@
 
 #define MAX_URL_EXT_SIZE (48)
 
+static const char wlt_cert[] = {
+        #include "wiliot_till_june_2023.der.inc"
+};
+
 static bool verifyConnectionResponse();
 
 typedef enum{
@@ -178,10 +142,6 @@ typedef enum{
         TLS_PEER_VERIFICATION_OPTIONAL = 1,
         TLS_PEER_VERIFICATION_REQUIRED = 2,
 }eTlsVerification;
-
-static const char wlt_cert[] = {
-        #include "wiliot_till_june_2023.der.inc"
-};
 
 typedef struct{
     int bodyLen;
@@ -193,6 +153,34 @@ typedef struct{
 	char * cmprWord;
 	size_t wordSize;
 } CallbackStruct;
+
+typedef struct{
+    char urlExt[MAX_URL_EXT_SIZE];
+    int contentLen;
+    char authToken[AUTH_HEADER_SIZE];
+    char bodyGateWay[SIZE_OF_ADDRESS_BUFFER];
+}setConnGWParams;
+
+typedef struct{
+    char *userCode;
+    char *deviceCode;
+}userDevCodes;
+
+typedef struct{
+    Token *accessToken;
+    uint32_t *accessTokenExpiry;
+}accessTokenInfo;
+
+typedef enum{
+    GET_ACCESS_TOKEN,
+    SET_CONNECTION_GW,
+    GET_CONNECTION_CODES,
+    REGISTER_CONNECTION_GW,
+    VALIDATE_AND_GET_REFRESH_TOKEN,
+    UPDATE_ACCESS_TOKEN,
+
+    REQUEST_GOALS_NUM,
+}eRequestGoal;
 
 static struct k_event s_responseEvent;
 static char s_response[MAX_RESPONSE_SIZE];
@@ -206,6 +194,37 @@ handleConnStateChangeCB s_receivedConnStateHandle = 0;
 static conn_handle s_connHandle = 0;
 static bool s_isNetworkReady = false;
 
+/* Buffers for MQTT client */
+static uint8_t rx_buffer[RX_BUF_SIZE] = {0};
+static uint8_t tx_buffer[TX_BUF_SIZE] = {0};
+static uint8_t payload_buf[PAYLOAD_BUF_SIZE] = {0};
+
+const char *pub_data_topic_id;
+const char *pub_status_topic_id;
+const char *sub_update_topic_id;
+const char *mqtt_client_id;
+const char *mqtt_user;
+const char *mqtt_uri;
+const char *mqtt_pw;
+uint32_t mqtt_port;
+
+struct mqtt_utf8 username;
+struct mqtt_utf8 password;
+
+static struct mqtt_client client;
+static struct sockaddr_storage broker;
+static bool mqttConnected = false;
+static bool topicSubbed = false;
+
+static struct pollfd mqtt_fd;
+
+K_SEM_DEFINE(mqttConnectedSem, 0, 1);
+K_SEM_DEFINE(mqttPollStartSem, 0, 1);
+
+static void mqttPollingThreadFunc();
+OSAL_THREAD_CREATE(mqttPollingThread, mqttPollingThreadFunc, SIZE_OF_MQTT_POLLER_THREAD, THREAD_PRIORITY_HIGH);
+
+/* Functions */
 static void iface_dns_added_evt_handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event,
                     struct net_if *iface)
 {
@@ -327,11 +346,11 @@ static char * getBodyRegDevCodePre(char * buff)
     return buff; 
 }
 
-//TODO fit current conventions (status, initialize etc)
 static int tls_setup_http(int sock)
 {
-	int err;
-	int verify;
+	int err = 0;
+	int verify = TLS_PEER_VERIFICATION_NONE;
+    int sessioncache = TLS_SESSION_CACHE_DISABLED;
 
 	/* Security tag that we have provisioned the certificate with */
 	const sec_tag_t tls_sec_tag[] = {
@@ -339,8 +358,6 @@ static int tls_setup_http(int sock)
 	};
 
 	/* Set up TLS peer verification */
-	verify = TLS_PEER_VERIFICATION_NONE; 
-
 	err = setsockopt(sock, SOL_TLS, TLS_PEER_VERIFY, &verify, sizeof(verify));
 	if (err)
     {
@@ -348,9 +365,7 @@ static int tls_setup_http(int sock)
         return err;
 	}
 
-	/* Associate the socket with the security tag
-	 * we have provisioned the certificate with.
-	 */
+	/* Associate the socket with the security tag we have provisioned the certificate with. */
 	err = setsockopt(sock, SOL_TLS, TLS_SEC_TAG_LIST, tls_sec_tag,
 			 sizeof(tls_sec_tag));
 	if (err)
@@ -366,16 +381,6 @@ static int tls_setup_http(int sock)
         return err;
 	}
 
-    /* TLS-ECDHE-RSA-WITH-AES-128-CBC-SHA256: 0xC027 */
-    // int cipher_list[] = {0xC027};
-
-    // err = setsockopt(sock, SOL_TLS, TLS_CIPHERSUITE_LIST, cipher_list, sizeof(cipher_list));
-    // if (err) {
-    //     printk("Failed to set up cipher suite list, err %d\n", errno);
-    //     return err;
-    // }
-
-    int sessioncache = TLS_SESSION_CACHE_DISABLED;
     err = setsockopt(sock, SOL_TLS, TLS_SESSION_CACHE, &sessioncache, sizeof(sessioncache)); // done in lte
     printk("fd=%d with Security Tag Id %d is ready\n",  sock, CA_CERTIFICATE_TAG);	
 	if (err)
@@ -396,35 +401,7 @@ static void dump_addrinfo(const struct addrinfo *ai)
 	       ((struct sockaddr_in *)ai->ai_addr)->sin_port);
 }
 
-typedef struct{
-    char urlExt[MAX_URL_EXT_SIZE];
-    int contentLen;
-    char authToken[AUTH_HEADER_SIZE];
-    char bodyGateWay[SIZE_OF_ADDRESS_BUFFER];
-}setConnGWParams;
-
-typedef struct{
-    char *userCode;
-    char *deviceCode;
-}userDevCodes;
-
-typedef struct{
-    Token *accessToken;
-    uint32_t *accessTokenExpiry;
-}accessTokenInfo;
-
-typedef enum{
-    GET_ACCESS_TOKEN,
-    SET_CONNECTION_GW,
-    GET_CONNECTION_CODES,
-    REGISTER_CONNECTION_GW,
-    VALIDATE_AND_GET_REFRESH_TOKEN,
-    UPDATE_ACCESS_TOKEN,
-
-    REQUEST_GOALS_NUM,
-}eRequestGoal;
-
-static int setRequestBuffer(eHttpMsgType msgType, eRequestGoal goal, void *requestParams) //TODO improve this to an array for better runtime
+static int setRequestBuffer(eHttpMsgType msgType, eRequestGoal goal, void *requestParams)
 {
     int status;
     setConnGWParams *setParams = requestParams;
@@ -466,7 +443,6 @@ static int setRequestBuffer(eHttpMsgType msgType, eRequestGoal goal, void *reque
     return SDK_SUCCESS;
 }
 
-//TODO freeaddrinfo needed?
 static int sendHttpRequest(eHttpMsgType msgType, eRequestGoal msgGoal, void *requestParams)
 {
     int sock = -1;
@@ -478,11 +454,11 @@ static int sendHttpRequest(eHttpMsgType msgType, eRequestGoal msgGoal, void *req
         .ai_family = AF_INET,
         .ai_socktype = SOCK_STREAM,
     };
-    printk("########## in open httpsocket\n");
+    printk("Sending http request\n");
     status = getaddrinfo(SHORT_URL, HTTPS_PORT, &hints, &res);
     if (status != 0)
     {
-        printk("###ERROR: Unable to resolve address, status %d, errno %d\n", status, errno);
+        printk("ERROR: Unable to resolve address, status %d, errno %d\n", status, errno);
         return SDK_FAILURE;
     }
     dump_addrinfo(res);
@@ -490,7 +466,7 @@ static int sendHttpRequest(eHttpMsgType msgType, eRequestGoal msgGoal, void *req
     sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TLS_1_2);
     if (sock == -1)
     {
-        printk("###ERROR: Invalid socket %d, errno %d\n", sock, errno);
+        printk("ERROR: Invalid socket %d, errno %d\n", sock, errno);
         return SDK_FAILURE;
     }
 
@@ -504,7 +480,7 @@ static int sendHttpRequest(eHttpMsgType msgType, eRequestGoal msgGoal, void *req
     status = connect(sock, res->ai_addr, sizeof(struct sockaddr_in));
     if (status == -1)
     {
-        printk("###ERROR: failed to connect, err %d\n", errno);
+        printk("ERROR: failed to connect, err %d\n", errno);
         close(sock);
         return SDK_FAILURE;
     }
@@ -512,7 +488,7 @@ static int sendHttpRequest(eHttpMsgType msgType, eRequestGoal msgGoal, void *req
     status = setRequestBuffer(msgType, msgGoal, requestParams);
     if (status == SDK_FAILURE)
     {
-        printk("###ERROR: setting request buffer failed, err %d\n", errno);
+        printk("ERROR: setting request buffer failed, err %d\n", errno);
         close(sock);
         return SDK_FAILURE;
     }
@@ -523,7 +499,7 @@ static int sendHttpRequest(eHttpMsgType msgType, eRequestGoal msgGoal, void *req
         status = send(sock, &s_requestBuffer[offset], len - offset, 0);
         if (status < 0)
         {
-            printk("###ERROR: send failed, err %d\n", errno);
+            printk("ERROR: send failed, err %d\n", errno);
             close(sock);
             return SDK_FAILURE;
         }
@@ -582,7 +558,6 @@ static SDK_STAT getTokenInfo(accessTokenInfo *buffer)
     return status;
 }
 
-//TODO handle fails within func
 static SDK_STAT getResponseInfo(eRequestGoal goal, void *buffer)
 {
     SDK_STAT status = SDK_SUCCESS;
@@ -593,6 +568,11 @@ static SDK_STAT getResponseInfo(eRequestGoal goal, void *buffer)
         return SDK_FAILURE;
     }
     s_lastJson = cJSON_Parse(jsonPos);
+    if (s_lastJson == NULL)
+    {
+        printk("cJSON parse failed\n");
+        return SDK_FAILURE;
+    }
 
     switch (goal)
     {
@@ -654,10 +634,11 @@ static SDK_STAT setConnectionGateway(char * authorizationHeader)
     strcpy(params.authToken, authorizationHeader);
 
     status = sendHttpRequest(HTTP_MSG_TYPE_PUT, SET_CONNECTION_GW, &params);
+    RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
     status = getResponseInfo(SET_CONNECTION_GW, NULL);
 
-	return SDK_SUCCESS;
+	return status;
 }
 
 static SDK_STAT getConnectionCodes(char * userCode, char * deviceCode)
@@ -738,21 +719,6 @@ static SDK_STAT getConnectionAccessAndRefreshToken(char * bodyDeviceCode)
 	return SDK_SUCCESS;
 }
 
-void LteInit()
-{
-    int status = 0;
-
-    printk("#######Setting up modem functionality\n");
-    status = mdm_hl7800_set_functionality(HL7800_FUNCTIONALITY_FULL);
-    if (status < 0)
-    {
-        printk("######modem set_func failure, err %d\n", status);
-        mdm_hl7800_set_functionality(HL7800_FUNCTIONALITY_FULL); // TODO if fails reset
-    }
-
-    printk("######finished initializing modem\n");
-}
-
 static SDK_STAT writeTlsCertificate()
 {
     int status = SDK_SUCCESS;
@@ -813,7 +779,7 @@ bool IsNetworkAvailable()
 SDK_STAT ConnectToNetwork()
 {
 	SDK_STAT status = SDK_SUCCESS;
-	char bodyDeviceCode[SIZE_OF_ADDRESS_BUFFER + sizeof(BODY_REG_POST) + SIZE_OF_DEVICE_CODE + 1] = {0};
+	char bodyDeviceCode[SIZE_OF_ADDRESS_BUFFER + sizeof(BODY_REG_POST) + SIZE_OF_DEVICE_CODE + 1] = {0}; //TODO verify sizes
 	char bodyUserCode[SIZE_OF_ADDRESS_BUFFER + sizeof(BODY_REG_POST)  + SIZE_OF_USER_CODE + 1] = {0};
 	char * authorizationHeader = NULL;
 	int authIndex = 0;
@@ -831,16 +797,27 @@ SDK_STAT ConnectToNetwork()
 	authIndex += sprintf((authorizationHeader + authIndex)," ");
 
 	status = getConnectionAccessToken(authorizationHeader + authIndex);//gets token with api_sec_key
-    printk("getconnectionaccesstoken %d\n", status);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+    if (status != SDK_SUCCESS)
+    {
+        OsalFree(authorizationHeader);
+        return status;
+    }
 	status = setConnectionGateway(authorizationHeader);//pre-register gw
-    printk("setconnectiongateway %d\n", status);
-	RETURN_ON_FAIL(status, SDK_SUCCESS, status);
+    if (status != SDK_SUCCESS)
+    {
+        OsalFree(authorizationHeader);
+        return status;
+    }
 
 	userIndex += sprintf((bodyUserCode + userIndex),"%s",BODY_REG_USR_CODE_PRE(s_addressStringBuffer));
 	deviceIndex += sprintf((bodyDeviceCode + deviceIndex),"%s",BODY_REG_DEV_CODE_PRE(s_addressStringBuffer));
 
-	getConnectionCodes((bodyUserCode + userIndex), (bodyDeviceCode + deviceIndex));//get codes required for registration and refresh token
+	status = getConnectionCodes((bodyUserCode + userIndex), (bodyDeviceCode + deviceIndex));//get codes required for registration and refresh token
+    if (status != SDK_SUCCESS)
+    {
+        OsalFree(authorizationHeader);
+        return status;
+    }
 
 	userIndex += SIZE_OF_USER_CODE;
 	deviceIndex += SIZE_OF_DEVICE_CODE;
@@ -866,8 +843,6 @@ SDK_STAT UpdateAccessToken(Token refreshToken, Token * accessToken, uint32_t * a
 	SDK_STAT status = SDK_SUCCESS;
     accessTokenInfo params = {accessToken, accessTokenExpiry};
 
-	// s_isLTEConfigurationDone = false; this pauses mqtt handling by modemreadcb
-
 	if(!refreshToken || !accessToken || !accessTokenExpiry)
 	{
 		return SDK_INVALID_PARAMS;
@@ -884,50 +859,7 @@ SDK_STAT UpdateAccessToken(Token refreshToken, Token * accessToken, uint32_t * a
     return status;
 }
 
-/* Buffers for MQTT client */
-#define RX_BUF_SIZE      (2048)
-#define TX_BUF_SIZE      (4096)
-#define PAYLOAD_BUF_SIZE (1024)
-
-#define MQTT_TOPIC_ID_MAX_SIZE              (64)
-#define MQTT_USER_MAX_SIZE                  (64)
-#define MQTT_CLIENT_ID_MAX_SIZE             (64)
-#define MQTT_BROKER_URI_MAX_SIZE            (128)
-#define MQTT_PASSOWRD_MAX_SIZE              (2048)
-
-static uint8_t rx_buffer[RX_BUF_SIZE] = {0};
-static uint8_t tx_buffer[TX_BUF_SIZE] = {0};
-static uint8_t payload_buf[PAYLOAD_BUF_SIZE] = {0};
-
-const char *pub_data_topic_id;
-const char *pub_status_topic_id;
-const char *sub_update_topic_id;
-const char *mqtt_client_id;
-const char *mqtt_user;
-const char *mqtt_uri;
-const char *mqtt_pw;
-uint32_t mqtt_port;
-
-struct mqtt_utf8 username;
-struct mqtt_utf8 password;
-
-bool mqtt_sub_ready = false;
-
-static struct mqtt_client client;
-static struct sockaddr_storage broker;
-static bool mqttConnected = false;
-static bool topicSubbed = false;
-
-static struct pollfd mqtt_fd;
-
-K_SEM_DEFINE(mqttConnectedSem, 0, 1);
-K_SEM_DEFINE(mqttPollStartSem, 0, 1);
-
-static void mqttPollingThreadFunc();
-
-OSAL_THREAD_CREATE(mqttPollingThread, mqttPollingThreadFunc, SIZE_OF_MQTT_POLLER_THREAD, THREAD_PRIORITY_HIGH);
-
-static bool isMqttConnected(void) //TODO unify with isConnectedToBrokerServer
+static bool isMqttConnected(void)
 {
     return mqttConnected;
 }
@@ -951,7 +883,7 @@ static void setMqttConnected(bool status)
                                             k_sem_take(semaphore, K_FOREVER);   \
                                             continue;                           \
                                             })
-//TODO error handling instead of breaks. perhaps a k_sem_take with continue.
+
 static void mqttPollingThreadFunc()
 {
     int rc;
@@ -1052,7 +984,7 @@ conn_handle IsConnectedToBrokerServer()
     return NULL;
 }
 
-//TODO finalize it (make a reboot function first probably)
+//TODO improve error handling
 void mqttEventHandler(struct mqtt_client *client, const struct mqtt_evt *evt)
 {
 	int err;
@@ -1062,7 +994,7 @@ void mqttEventHandler(struct mqtt_client *client, const struct mqtt_evt *evt)
         case MQTT_EVT_CONNACK:
             if (evt->result != 0)
             {
-                printk("###Mqtt connection failed, %d\n", evt->result);
+                printk("Mqtt connection failed, %d\n", evt->result);
                 OsalSystemReset();
                 return;
             }
@@ -1079,20 +1011,18 @@ void mqttEventHandler(struct mqtt_client *client, const struct mqtt_evt *evt)
             const int publishLen = evt->param.publish.message.payload.len;
             if (evt->result != 0 || publishLen > (PAYLOAD_BUF_SIZE - 1))
             {
-                printk("###Mqtt publish failed. err %d, published message len > buffsize? %d\n", evt->result, 
+                printk("Mqtt publish failed. err %d, published message len > buffsize? %d\n", evt->result, 
                     publishLen > (PAYLOAD_BUF_SIZE - 1));
                 OsalSystemReset();
-                //TODO error handle, reboot?
                 return;
             }
             err = mqtt_readall_publish_payload(client, payload_buf, publishLen);
             if (err < 0)
             {
                 printk("Failed reading publish payload from subscribed topic, err %d\n", err);
-                //TODO error handle, reboot?
                 return;
             }
-            payload_buf[publishLen] = '\0'; //necessary? probably yes
+            payload_buf[publishLen] = '\0';
             if (!IS_JSON_PREFIX(payload_buf))
             {
                 printk("Payload recieved is not identified as JSON(first char == %c\n", payload_buf[0]);
@@ -1104,8 +1034,7 @@ void mqttEventHandler(struct mqtt_client *client, const struct mqtt_evt *evt)
         case MQTT_EVT_PUBACK:
             if (evt->result != 0)
             {
-                printk("###Mqtt puback failed, %d\n", evt->result);
-                //TODO error handle, reboot?
+                printk("Mqtt puback failed, %d\n", evt->result);
                 return;
             }
             break;
@@ -1113,8 +1042,7 @@ void mqttEventHandler(struct mqtt_client *client, const struct mqtt_evt *evt)
         case MQTT_EVT_SUBACK:
             if (evt->result != 0)
             {
-                printk("###Mqtt suback failed, %d\n", evt->result);
-                //TODO error handle, reboot?
+                printk("Mqtt suback failed, %d\n", evt->result);
                 return;
             }
             setTopicSubbed(true);
@@ -1123,18 +1051,16 @@ void mqttEventHandler(struct mqtt_client *client, const struct mqtt_evt *evt)
         case MQTT_EVT_PINGRESP:
             if (evt->result != 0)
             {
-                printk("###Mqtt ping response failed, %d\n", evt->result);
-                //TODO error handle, reboot?
+                printk("Mqtt ping response failed, %d\n", evt->result);
                 return;
             }
-            // printk("##Got ping response\n");
+            printk("Got ping response\n");
             break;
 
         case MQTT_EVT_UNSUBACK: 
             if (evt->result != 0)
             {
-                printk("###Mqtt unsuback failed, %d\n", evt->result);
-                //TODO error handle, reboot?
+                printk("Mqtt unsuback failed, %d\n", evt->result);
                 return;
             }
             printk("Mqtt unsubscribed successfully\n");
@@ -1257,11 +1183,9 @@ static SDK_STAT brokerInit(void)
 	return SDK_SUCCESS;
 }
 
-#define CONFIG_SEC_TAG (51966)
-static sec_tag_t secTagList[] = { CA_CERTIFICATE_TAG };
-
 static SDK_STAT clientInit(void)
 {
+    static sec_tag_t secTagList[] = { CA_CERTIFICATE_TAG };
     SDK_STAT status;
     username.utf8 = mqtt_user;
     username.size = strlen(mqtt_user);
@@ -1297,7 +1221,7 @@ static SDK_STAT clientInit(void)
 	/* MQTT transport configuration */
 	struct mqtt_sec_config *tlsConfig = &client.transport.tls.config;
 
-	tlsConfig->peer_verify = TLS_PEER_VERIFICATION_NONE; //TODO this is less secured
+	tlsConfig->peer_verify = TLS_PEER_VERIFICATION_NONE; //TODO use a more secured verification flag
 	tlsConfig->cipher_count = 0;
 	tlsConfig->cipher_list = NULL;
 	tlsConfig->sec_tag_count = ARRAY_SIZE(secTagList);
@@ -1410,7 +1334,7 @@ conn_handle ConnectToServer()
         return NULL;
     }
 
-	s_connHandle = (conn_handle)CONNECTION_HANDLE; //prev imp
+	s_connHandle = (conn_handle)CONNECTION_HANDLE;
 
 	return s_connHandle;
 }

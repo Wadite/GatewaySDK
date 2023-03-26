@@ -24,7 +24,7 @@
 #define MAX_INT_DIGITS                  (16)
 #define MAX_DOUBLE_DIGITS               (32)
 #define MAX_CONF_PARAM_SIZE             (20)
-#define MAX_ID_LEN                      (32) //TODO verify sizes
+#define MAX_ID_LEN                      (20)
 
 
 #define CONFIG_STRING_DEBUG             "debug"

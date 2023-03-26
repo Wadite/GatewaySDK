@@ -14,7 +14,7 @@ static void modemDeviceStart()
     status = mdm_hl7800_reset();
     if (status != 0)
     {
-        printk("########failed resetting modem\n");
+        printk("Failed resetting modem\n");
     }
 }
 
