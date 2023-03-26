@@ -11,7 +11,6 @@
 #include "flash-drv.h"
 #include "sdkUtils.h"
 
-#include <zephyr/zephyr.h>
 #include <assert.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>

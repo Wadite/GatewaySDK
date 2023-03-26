@@ -71,19 +71,19 @@ const char * GetConfigurationKeyName(eConfigurationParams confParm);
  * @return SDK_FAILURE if requested configuration has invalid value.
  * @return SDK_SUCCESS if requested param was written to poiner successfully
  */
-inline SDK_STAT GetLoggerUploadMode(const char** loggerUploadModePtr);
-inline SDK_STAT GetLoggerSeverity(eLogTypes * loggerSeverityPtr);
-inline SDK_STAT GetLoggerLocalTraceConfig(bool * loggerLocalTraceConfig);
-inline SDK_STAT GetLoggerNumberOfLogs(int * loggerNumberOfLogs);
-inline SDK_STAT GetUuidToFilter(uint16_t * uuidToFilter);
-inline SDK_STAT GetAccountID(const char** accountId);
-inline SDK_STAT GetGatewayType(const char** gatewayType);
-inline SDK_STAT GetGatewayId(const char** gatewayId);
-inline SDK_STAT GetIsLocationSupported(bool* isLocationSupported);
-inline SDK_STAT GetLatitude(double * lat);
-inline SDK_STAT GetLongitude(double* lng);
-inline SDK_STAT GetMqttServer(const char ** mqttServer);
-inline SDK_STAT GetApiVersion(const char ** apiVersion);
+static inline SDK_STAT GetLoggerUploadMode(const char** loggerUploadModePtr);
+static inline SDK_STAT GetLoggerSeverity(eLogTypes * loggerSeverityPtr);
+static inline SDK_STAT GetLoggerLocalTraceConfig(bool * loggerLocalTraceConfig);
+static inline SDK_STAT GetLoggerNumberOfLogs(int * loggerNumberOfLogs);
+static inline SDK_STAT GetUuidToFilter(uint16_t * uuidToFilter);
+static inline SDK_STAT GetAccountID(const char** accountId);
+static inline SDK_STAT GetGatewayType(const char** gatewayType);
+static inline SDK_STAT GetGatewayId(const char** gatewayId);
+static inline SDK_STAT GetIsLocationSupported(bool* isLocationSupported);
+static inline SDK_STAT GetLatitude(double * lat);
+static inline SDK_STAT GetLongitude(double* lng);
+static inline SDK_STAT GetMqttServer(const char ** mqttServer);
+static inline SDK_STAT GetApiVersion(const char ** apiVersion);
 
 #include "sdkConfigurationsImplementation.h"
 
