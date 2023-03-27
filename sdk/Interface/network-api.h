@@ -178,4 +178,9 @@ SDK_STAT ReconnectToNetwork();
  */
 SDK_STAT RegisterNetReceiveMQTTPacketCallback(NetMQTTPacketCB cb);
 
+/**
+ * @brief gets the IMEI of the device
+ */
+char  *GetIMEI(void);
+
 #endif //_NETWORK_API_H_

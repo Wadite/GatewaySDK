@@ -59,6 +59,9 @@ void main(void)
 	sdkStatus = NetworkManagerInit();
 	assert(sdkStatus == SDK_SUCCESS);
 	
+    sdkStatus = NetworkInit();
+    assert(sdkStatus == SDK_SUCCESS);
+
 	OsalStart(); // System therads released here
 
 	OsalSleep(UINT32_MAX);

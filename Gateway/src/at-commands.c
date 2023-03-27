@@ -23,6 +23,7 @@ static const char * s_atCmdsTable[AT_CMD_NUM] = {
 	[AT_CMD_CTZU]       = "CTZU",
     [AT_CMD_QCFG]       = "QCFG",
     [AT_CMD_CGDCONT]    = "CGDCONT",
+    [AT_CMD_CGSN]       = "CGSN",
 	[AT_CMD_CEREG]      = "CEREG",
 	[AT_CMD_COPS]       = "COPS",
     [AT_CMD_QCSQ]       = "QCSQ",
