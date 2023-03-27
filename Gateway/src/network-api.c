@@ -52,9 +52,7 @@
 #define TIME_TO_RETRY_CEREG_PAYLOAD			(10000)
 
 #define RESPONSE_BUFFER_SIZE				(50)
-#define API_SEC_KEY						    "Yjk2MjAyY2ItMDcyZi00NzRiLThmNjMtOTMyOTA5N2IxOTg1OnhJNUhHSC1KcXZxNGN6NzVsZFYwUDY4Ul8xXzg3Q1lFRGl3RVJMcFJ6dlU="
-/*wiliot prod"MTRlNzAwMjItZTNiNi00ODZjLThkOTQtM2ZmZTk3MTEyM2NjOlFxMXR3THlvRzNSbkRiTm51ZVV3Uk9BeElSUlVxa3pJV0RrLW55NmZLQ3c="*/
-/*tandem test:"NTUxNTU1YzAtZTUwNS00MDUwLTlmMzItYTllOTM0MjIyYTQzOm9CUFVITERrSzFZMDNQSEU1Q3Q5QWxJWHk2QzZFMU51aGZBM2M5aGNtazA="*/
+#define API_SEC_KEY						    "MTRlNzAwMjItZTNiNi00ODZjLThkOTQtM2ZmZTk3MTEyM2NjOlFxMXR3THlvRzNSbkRiTm51ZVV3Uk9BeElSUlVxa3pJV0RrLW55NmZLQ3c="
 #define CONNECTION_TOKEN_TYPE				"Bearer"
 #define HTTP_SEND_RECEIVE_TIMEOUT			(80)
 #define SIZE_OF_ACCESS_CONNECTION_TOKEN		(1251)
@@ -79,13 +77,13 @@
 #define SHORT_URL 							"api.wiliot.com"
 #define CONNECTION_URL						"https://"SHORT_URL
 #define TYPE_APP_JSON						"application/json"
-#define URL_EXT_ACCESS_TOKEN				/*"/test*/"/v1/auth/token/api"
+#define URL_EXT_ACCESS_TOKEN				"/v1/auth/token/api"
 #define URL_EXT_GATEWAY_OWN(buff)			getUrlExtGateWayOwn((buff))
-#define URL_EXT_DEVICE_AUTH					/*"/test*/"/v1/gateway/device-authorize"
-#define URL_EXT_REG_GATEWAY					/*"/test*/"/v2/gateway/registry"
-#define URL_EXT_GET_TOKENS					/*"/test*/"/v2/gateway/token"
-#define URL_EXT_UPDATE_ACCESS				/*"/test*/"/v1/gateway/refresh?refresh_token="
-#define URL_PRE_REGISTER                    /*"/test*/"/v1/owner/" 
+#define URL_EXT_DEVICE_AUTH					"/v1/gateway/device-authorize"
+#define URL_EXT_REG_GATEWAY					"/v2/gateway/registry"
+#define URL_EXT_GET_TOKENS					"/v2/gateway/token"
+#define URL_EXT_UPDATE_ACCESS				"/v1/gateway/refresh?refresh_token="
+#define URL_PRE_REGISTER                    "/v1/owner/" 
 
 #define MAX_BODY_SIZE_DIGITS_NUM			(5)
 #define BODY_GATEWAY(buff)					getBodyGateWay((buff))
