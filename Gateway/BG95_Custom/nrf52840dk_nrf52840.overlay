@@ -1,4 +1,12 @@
 
+/ {
+    aliases {
+        modem-uart = &uart1;
+        gpio-0 = &gpio0;
+        storage = &storage_partition;
+    };
+};
+
 &pinctrl {
 	uart0_default: uart0_default {
 		group1 {
@@ -25,12 +33,10 @@
 };
 
 &uart1{
-	label = "MODEM_UART";
 	status = "okay";
 };
 
 &gpio0 {
-	label = "GPIO_0";
 	status = "okay";
 };
 
@@ -42,7 +48,6 @@
 		#size-cells = <1>;
 
 		storage_partition: partition@f8000 {
-			label = "storage";
 			status = "okay";
 			reg = <0x000f8000 0x00008000>;
 		};

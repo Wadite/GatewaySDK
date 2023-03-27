@@ -10,8 +10,8 @@
 #include "logger.h"
 #include "flash-drv.h"
 #include "sdkUtils.h"
+#include "MQTTPacket.h"
 
-#include <zephyr/zephyr.h>
 #include <assert.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
@@ -112,6 +112,7 @@
 #define MQTT_PUBLISH_TIME_RESPONSE			(1000)
 #define MQTT_ERROR_CODE_CONNECT				{32,2,0,0}
 #define MQTT_ERROR_CODE_SUBSCRIBE			{144,3,0,1,0}
+#define MQTT_SUCCESS_READ                   (1)
 
 typedef struct{
 	bool isWaitingResponse;
@@ -199,6 +200,28 @@ static char * getBodyRegDevCodePre(char * buff)
     return buff; 
 }
 
+static char* mqttPackageRead(unsigned char* buf, int buflen)
+{
+    unsigned char dup = 0;
+    int qos = 0;
+    unsigned char retained = 0;
+    unsigned short packetid = 0;
+    MQTTString topicName = {0};
+    unsigned char * payload = NULL;
+    int payloadlen = 0;
+    int err = 0;
+
+    err = MQTTDeserialize_publish(&dup, &qos, &retained, &packetid, &topicName,
+		                            &payload, &payloadlen, buf, buflen);
+
+    if(err != MQTT_SUCCESS_READ)
+    {
+        return NULL;
+    }
+
+    return (char*)payload;
+}
+
 static void connectionStateChangeProcess()
 {
 	s_receivedConnStateHandle(s_connHandle);
@@ -207,9 +230,10 @@ static void connectionStateChangeProcess()
 static void postConnectionMessageProcess(uint8_t* buff, uint16_t buffSize)
 {
 	static bool incommingServerMsg = false;
+    char *mqttPayloadStart = NULL;
 
-	if(strncmp(MQTT_BROKER_RESPONSE_STRING, buff, strlen(MQTT_BROKER_RESPONSE_STRING)) == 0)
-	{
+    if(strncmp(MQTT_BROKER_RESPONSE_STRING, buff, strlen(MQTT_BROKER_RESPONSE_STRING)) == 0)
+    {
 		incommingServerMsg = true;
 	}
 	else if(strncmp(MQTT_BROKER_CLOSED_STRING, buff, strlen(MQTT_BROKER_CLOSED_STRING)) == 0)
@@ -219,7 +243,11 @@ static void postConnectionMessageProcess(uint8_t* buff, uint16_t buffSize)
 	}
 	else if(incommingServerMsg && s_receivedMQTTPacketHandle)
 	{
-		s_receivedMQTTPacketHandle(buff,buffSize);
+        mqttPayloadStart = mqttPackageRead(buff, buffSize);
+        if (mqttPayloadStart)
+        {
+            s_receivedMQTTPacketHandle(mqttPayloadStart, buffSize - (mqttPayloadStart - (char *)buff));
+        }
 		incommingServerMsg = false;
 	}
 }
@@ -883,7 +911,7 @@ static SDK_STAT connectToSSL()
 	return status;
 }
 
-SDK_STAT SubscribeToTopic(char * topic)
+SDK_STAT SubscribeToTopic(const char * topic)
 {
 	int req_qos = 0;
 	int len = 0;
