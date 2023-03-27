@@ -6,9 +6,9 @@
 #include "sdkConfigurations.h"
 
 
-#define MQTT_UPLINK_PREFIX					"data-prod/"/*-test/"*/
-#define MQTT_DOWNLINK_PREFIX				"update-prod/"/*-test/"*/
-#define MQTT_STATUS_PREFIX					"status-prod/"/*-test/"*/
+#define MQTT_UPLINK_PREFIX					"data-prod/"
+#define MQTT_DOWNLINK_PREFIX				"update-prod/"
+#define MQTT_STATUS_PREFIX					"status-prod/"
 #define SIZE_OF_MQTT_TOPIC					(128)
 
 
