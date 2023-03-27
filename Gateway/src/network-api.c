@@ -27,7 +27,7 @@
 #define INT_TO_STR(x) 						STR_HELPER(x)
 
 #define SIZE_OF_COMPARE_STRING				(128)
-#define MODEM_WAKE_TIMEOUT					(40000)/*30000*/
+#define MODEM_WAKE_TIMEOUT					(40000)
 #define AT_CMD_TIMEOUT						(1000)
 #define RESPONSE_EVENT_BIT_SET				(0x001)
 
