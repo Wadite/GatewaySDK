@@ -2,8 +2,8 @@
 #define _SDK_COMMON_H
 
 typedef enum {
+    SDK_FAILURE = -1,
     SDK_SUCCESS = 0,
-    SDK_FAILURE,
     SDK_INVALID_PARAMS,
     SDK_BUSY,
     SDK_TIMEOUT,

@@ -7,7 +7,6 @@
 #include "network-api.h"
 #include "cJSON.h"
 #include "sdkConfigurations.h"
-#include "MQTTPacket.h"
 #include "mqttTopics.h"
 #include "williotSdkJson.h"
 #include "sdkUtils.h"
@@ -23,7 +22,6 @@
 #define SIZE_OF_DOWN_LINK_QUEUE             (5)
 #define DEFAULT_ADV_DURATION                (100)
 #define DEFAULT_ADV_INTERVAL                (8)
-#define MQTT_SUCCESS_READ                   (1)
 #define JSON_KEY_DURATION                   "txMaxDurationMs"
 #define JSON_KEY_RETRIES                    "txMaxRetries"
 #define JSON_KEY_PACKET                     "txPacket"
@@ -149,10 +147,7 @@ static void createDownlinkJson(const char* ptr)
     {
 
 #ifdef DEBUG
-        char * debugString = cJSON_Print(downLinkJson);
-        assert(debugString);
-        LOG_DEBUG_INTERNAL("\nDownlink message : \n%s\n",debugString);
-        FreeJsonString(debugString);
+        LOG_DEBUG_INTERNAL("\nDownlink message : \n%s\n", ptr);
 #endif
 
         advJson(downLinkJson);
@@ -173,34 +168,16 @@ static void createDownlinkJson(const char* ptr)
     cJSON_Delete(downLinkJson);
 }
 
-static char* mqttPackageRead(unsigned char* buf,int buflen)
-{
-    unsigned char dup = 0;
-    int qos = 0;
-    unsigned char retained = 0;
-    unsigned short packetid = 0;
-    MQTTString topicName = {0};
-    unsigned char * payload = NULL;
-    int payloadlen = 0;
-    int err = 0;
-
-    err = MQTTDeserialize_publish(&dup, &qos, &retained, &packetid, &topicName,
-		                            &payload, &payloadlen, buf, buflen);
-
-    if(err != MQTT_SUCCESS_READ)
-    {
-        OsalFreeFromMemoryPool(payload, s_downLinkMemPool);
-        return NULL;
-    }
-
-    return (char*)payload;
-}
-
 static void downLinkProcess(DownLinkMsg * rawDownLink)
 {
-    char * mqttPayload = NULL;
+    char * mqttPayload = rawDownLink->payload;
 
-    mqttPayload = mqttPackageRead(rawDownLink->payload, rawDownLink->sizeOfPayload);
+#ifdef DEBUG
+    if(mqttPayload)
+    {
+        printk("downlink mqtt pkt:\n|%s|\n", mqttPayload); 
+    }
+#endif
 
     if(mqttPayload && IS_JSON(mqttPayload))
     {

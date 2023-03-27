@@ -24,8 +24,7 @@
 #define MAX_INT_DIGITS                  (16)
 #define MAX_DOUBLE_DIGITS               (32)
 #define MAX_CONF_PARAM_SIZE             (20)
-#define MAX_ID_LEN                      (32)
-
+#define MAX_ID_LEN                      (20)
 
 #define CONFIG_STRING_DEBUG             "debug"
 #define CONFIG_STRING_INFO              "info"
@@ -40,7 +39,7 @@
 #define DEFAULT_CONF_NUMBER_OF_LOGS     "5"
 #define DEFAULT_CONF_UUID               "0xfdaf"
 #define DEFAULT_CONF_ACCOUNT_ID         "wiliot"
-#define DEFAULT_CONF_GATEWAY_TYPE       "other"
+#define DEFAULT_CONF_GATEWAY_TYPE       "lte"
 #define DEFAULT_CONF_GATEWAY_ID         "GWDEADBEEF8888"
 #define DEFAULT_CONF_LOCATION_SUPPORT   CONFIG_STRING_TRUE
 #define DEFAULT_CONF_LOCATION           "0.0"
@@ -427,7 +426,6 @@ static char * readFromStorageAssist(eConfigurationParams confParam)
     return tempStorageAllocation;
 }
 
-// not seeing bridges with updateconfgatewayid called.
 SDK_STAT UpdateConfGatewayId(void)
 {
     SDK_STAT status = SDK_SUCCESS;
@@ -664,11 +662,18 @@ static const char * getConfigurationJsonString()
 SDK_STAT SendConfigurationToServer()
 {
     SDK_STAT status = SDK_SUCCESS;
+    int attempts = 0;
     const char * confStr = getConfigurationJsonString();
     const char * topic = GetMqttStatusTopic();
 
-    // printk("#####json sent:\n%s\n", confStr);
-	status = NetworkMqttMsgSend(topic, (char*)confStr, strlen(confStr));
+    do
+    {
+        status = NetworkMqttMsgSend(topic, (char*)confStr, strlen(confStr));
+        attempts++;
+    } while (status != SDK_SUCCESS && attempts < 5);
+
+    printk("Gateway configuration sent to server: \n%s\n", (status == SDK_SUCCESS) ? confStr : "Sending failed");
+
 	FreeJsonString((char*)confStr);
 
     return status;

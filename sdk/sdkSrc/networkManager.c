@@ -25,18 +25,13 @@
 #define SIZE_OF_NETWORK_MANGAER_QUEUE            (1)
 #endif
 
-#define ACCESS_TOKEN_REFRESH_WINDOW_MS           (300000)
+#define ACCESS_TOKEN_REFRESH_WINDOW_MS           (600000)
 #define RECONNECTION_ATTEMPTS                    (5)
 
 #define TIME_TO_LOG                              (1000)
+#define SEC_TO_MSEC(seconds)                     (seconds * MSEC_PER_SEC)
 
 OSAL_CREATE_POOL(s_networkManagerMemPool, SIZE_OF_NETWORK_MANAGER_MEMORY);
-
-typedef enum{
-	CONN_STATE_DISCONNECTION,
-
-    CONN_STATE_NUM
-} eConnectionStates;
 
 static conn_handle s_connHandle = 0;
 static Queue_t s_queueOfNetworkManager = NULL;
@@ -54,15 +49,13 @@ static void changeConnStateCallback(conn_handle connHandle)
     SDK_STAT status = SDK_SUCCESS;
     eConnectionStates * connState = NULL;
 
-    assert(connHandle == s_connHandle);
-    
     connState = (eConnectionStates*)OsalMallocFromMemoryPool(sizeof(eConnectionStates), s_networkManagerMemPool);
     if(!connState)
     {
         return;
     }
 
-    *connState = CONN_STATE_DISCONNECTION;
+    *connState = *(eConnectionStates *)connHandle;
 
     status = OsalQueueEnqueue(s_queueOfNetworkManager, connState, s_networkManagerMemPool);
     if(status != SDK_SUCCESS)
@@ -79,7 +72,8 @@ static SDK_STAT localAccessTokenUpdate(Token refreshToken)
     status = UpdateAccessToken(refreshToken, &accessToken, &s_accessTokenExpiry);
     RETURN_ON_FAIL(status, SDK_SUCCESS, status);
 
-    s_accessTokenExpiry += (OsalGetTime() - ACCESS_TOKEN_REFRESH_WINDOW_MS);
+    /* TODO this will loop after 49 days, relevant? */
+    s_accessTokenExpiry = SEC_TO_MSEC(s_accessTokenExpiry) + OsalGetTime() - ACCESS_TOKEN_REFRESH_WINDOW_MS;
 
     return SDK_SUCCESS;
 }
@@ -125,7 +119,6 @@ static SDK_STAT mqttFlow(Token refreshToken)
     return SDK_SUCCESS;
 }
 
-
 static SDK_STAT reconnectToMqtt()
 {
     SDK_STAT status = SDK_SUCCESS;
@@ -157,27 +150,24 @@ static void reconnectionFlow()
 {
     SDK_STAT status = SDK_SUCCESS;
     uint8_t attempts  = 0;
-
-    s_isNetworkConnected = false;
     
-    status = reconnectToMqtt();
-    while((status != SDK_SUCCESS) && attempts < RECONNECTION_ATTEMPTS)
+    do 
     {
-        attempts++;
         status = reconnectToMqtt();
-    }
+        attempts++;
+    } while((status != SDK_SUCCESS) && attempts < RECONNECTION_ATTEMPTS);
 
     if(attempts == RECONNECTION_ATTEMPTS && status != SDK_SUCCESS)
     {
+        printk("Failed reconnecting too many times, resetting..\n");
         OsalSleep(TIME_TO_LOG);
         OsalSystemReset();
     }
     else
     {
         printk("Reconnected to mqtt successfully\n");
+        s_isNetworkConnected = true;
     }
-
-    s_isNetworkConnected = true;
 }
 
 static void networkManagerThreadFunc()
@@ -186,17 +176,15 @@ static void networkManagerThreadFunc()
     eConnectionStates * connState = NULL;
 
     status = fullConnectionInit();
-    assert(SDK_SUCCESS == status);
+    RESET_ON_FAIL(status, SDK_SUCCESS);
+    s_isNetworkConnected = true;
 
     status = SubscribeToTopic((char*)GetMqttDownlinkTopic());
-    assert(SDK_SUCCESS == status);
-
-    s_isNetworkConnected = true;
+    RESET_ON_FAIL(status, SDK_SUCCESS);
 
     status = SendConfigurationToServer();
-    assert(SDK_SUCCESS == status);
+    RESET_ON_FAIL(status, SDK_SUCCESS);
 
-    s_isNetworkConnected = true;
     while(true)
     {
         status = OsalQueueWaitForObject(s_queueOfNetworkManager, 
@@ -207,8 +195,13 @@ static void networkManagerThreadFunc()
         switch(*connState)
         {
             case CONN_STATE_DISCONNECTION:
+                s_isNetworkConnected = false;
                 printk("MQTT disconnected\n");
                 reconnectionFlow();
+                break;
+
+            case CONN_STATE_CONNECTION:
+                s_isNetworkConnected = true;
                 break;
 
             case CONN_STATE_NUM:
@@ -286,7 +279,7 @@ SDK_STAT NetworkMqttMsgSend(const char* topic, void* pkt, uint32_t length)
             RETURN_ON_FAIL(status, SDK_SUCCESS, status);
         }
 
-        status = NetSendMQTTPacket(topic,pkt, length);
+        status = NetSendMQTTPacket(topic, pkt, length);
         RETURN_ON_FAIL(status, SDK_SUCCESS, status);
     }
 

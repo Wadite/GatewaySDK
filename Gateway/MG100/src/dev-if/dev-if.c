@@ -256,7 +256,6 @@ SDK_STAT DevStorageRead(const char * key , void * value, size_t sizeOfValue)
     sizeOfJsonParmString = (strlen(jsonParmString) + 1);
     if(!jsonParmString || (sizeOfJsonParmString > sizeOfValue))
     {
-        // FreeJsonString(jsonParmString); /*This caused a bus error. Incorrect free?*/
         cJSON_Delete(flashJson);
         return SDK_INVALID_PARAMS;
     }

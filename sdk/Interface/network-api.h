@@ -99,7 +99,7 @@ SDK_STAT NetSendMQTTPacket(const char* topic, void* pkt, uint32_t length);
  * 
  * @return SDK_SUCCESS upon success, relevant error otherwise
  */
-SDK_STAT SubscribeToTopic(char * topic);
+SDK_STAT SubscribeToTopic(const char * topic);
 
 /**
  * @brief gets an MQTT message on the subscribed topic, extracts JSON payload and call DnlnkPkt()
