@@ -296,6 +296,7 @@ static bool shouldSendLog(eLogTypes logType)
 
 void LogSend(eLogTypes logType, const char* message, ...)
 {   
+#if 0 /* TODO Logger module require verification */
     assert(message);
     assert(logType < LOG_TYPE_NUM);
 
@@ -333,4 +334,5 @@ void LogSend(eLogTypes logType, const char* message, ...)
         freeMsgAndStruct(newMsgPtr, newLogMsgPtr);
         return;
     }
+#endif
 }

@@ -13,6 +13,4 @@
  */
 SDK_STAT DownLinkInit(dev_handle bleDev, dev_handle localDev);
 
-void createDownlinkJson(const char* ptr);
-
 #endif //_DOWN_LINK_H
