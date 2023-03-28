@@ -14,7 +14,7 @@ Table of Contents
 Initialization
 --------------
 
-To initialize the configuration module, call the `ConfigurationInit` function. This function reads the existing configuration parameters from storage, or loads the default values if none are found.
+To initialize the each module, call its `Init` function. For example, the 'ConfigurationInit' function reads the existing configuration parameters from storage, or loads the default values if none are found.
 
 
 
@@ -44,6 +44,7 @@ The following APIs are available in the Wiliot Gateway SDK:
 3.  `SendConfigurationToServer`
 
     Send the current configuration to the server via MQTT.
+    This function must be called after establishing an MQTT connection for the first time.
 
 
 
@@ -51,7 +52,7 @@ The following APIs are available in the Wiliot Gateway SDK:
 
 4.  `GetConfigurationKeyName`
 
-    Get the key name for a specific configuration parameter.
+    Get the key name (string) for a specific configuration parameter.
 
 
 
@@ -87,6 +88,8 @@ To build the Wiliot Gateway SDK, follow these steps:
 3.  Configure your build environment according to the platform-specific instructions.
 
 4.  Build the SDK by running the appropriate build command for your platform.
+
+For more details, refer to the Building section within this main repository README.
 
 Testing
 -------
