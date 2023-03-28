@@ -21,7 +21,7 @@ These instructions will guide you on how to set up and use the project.
 ### Prerequisites
 
 Software: You're expected to have any [Zephyr](https://docs.zephyrproject.org/latest/introduction/index.html)-based development environment. 
-Our choice is nRF Connect extension for VSCode. The extension allows you to edit, build & flash the project with an easy intuitive GUI once set up. *If you're interested in setting up the extension, you may want to follow some first steps [docs](https://nrfconnect.github.io/vscode-nrf-connect/get_started/install.html) or [videos](https://www.youtube.com/watch?v=zcMCaODyISo&list=PLx_tBuQ_KSqEt7NK-H7Lu78lT2OijwIMl]
+Our choice is nRF Connect extension for VSCode. The extension allows you to edit, build & flash the project with an easy intuitive GUI once set up. If you're interested in setting up the extension for the first time, you may want to follow some first steps [docs](https://nrfconnect.github.io/vscode-nrf-connect/get_started/install.html) or [videos](https://www.youtube.com/watch?v=zcMCaODyISo&list=PLx_tBuQ_KSqEt7NK-H7Lu78lT2OijwIMl).
 
 Hardware: You'll need your board, as well as any necessary hardware for flashing it. *Make sure your board supports both BLE(Bluetooth Low Energy) and Internet(Wifi/LTE) communication.*
 In our goto case it's the [MG100](https://www.lairdconnect.com/iot-devices/bluetooth-iot-devices/sentrius-mg100-gateway-lte-mnb-iot-and-bluetooth-5) board and a J-Link([programming guide](https://www.lairdconnect.com/documentation/user-guide-programming-mg100)).
