@@ -1,7 +1,6 @@
 #include "modem-drv.h"
 #include "osal.h"
 
-#include <zephyr/zephyr.h>
 #include <assert.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
@@ -176,7 +175,7 @@ SDK_STAT ModemSend(const void* dataBuff, uint16_t buffSize)
 static void modemDeviceStart()
 {
     int result = 0;
-    const struct device* gpioDev = device_get_binding("GPIO_0");
+    const struct device* gpioDev = DEVICE_DT_GET(DT_ALIAS(gpio_0));
 
     result = gpio_pin_configure(gpioDev, PIN_CATM_EN, GPIO_OUTPUT);
     __ASSERT((result >= 0),"Received error from gpio_pin_configure");
@@ -200,7 +199,7 @@ SDK_STAT ModemInit(ReadModemDataCB cb)
 {
     modemDeviceStart();
 
-    s_uartDev = device_get_binding("MODEM_UART");
+    s_uartDev = DEVICE_DT_GET(DT_ALIAS(modem_uart));
     if(!s_uartDev || !cb)
     {
         return SDK_FAILURE;

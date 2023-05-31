@@ -17,7 +17,7 @@ SDK_STAT FlashInit()
  
     if(!isFlashOpen)
     {
-        err = flash_area_open(FLASH_AREA_ID(storage), &s_storageArea);
+        err = flash_area_open(DT_FIXED_PARTITION_ID(DT_ALIAS(storage)), &s_storageArea);
         isFlashOpen = true;
     }
 

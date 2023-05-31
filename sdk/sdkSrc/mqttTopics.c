@@ -32,7 +32,7 @@ static char * getMqttTopic(const char * topicPrefix, char * buff)
     return buff; 
 }
 
-const char * GetMqttUpLinkTopic() 
+const char * GetMqttUplinkTopic() 
 {
 	static char upLinkTopicBuff[SIZE_OF_MQTT_TOPIC] = {0};
 	static bool isInitalized = false;

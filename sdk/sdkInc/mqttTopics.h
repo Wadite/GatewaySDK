@@ -4,7 +4,7 @@
 /**
  * @brief Function for returning the mqtt topic for uplink
  */
-const char * GetMqttUpLinkTopic();
+const char * GetMqttUplinkTopic();
 
 /**
  * @brief Function for returning the mqtt topic for downlink

@@ -212,8 +212,11 @@ static void sendLastUpLinkMsg(UpLinkMsg * lastUpLinkMsg)
     convertPayloadToString(lastUpLinkMsg->payload, s_lastUpLinkPayloadString, SIZE_STATIC_PAYLOAD);
     upLinkJson = createUpLinkJson(lastUpLinkMsg, s_lastUpLinkPayloadString);
 
-    status = NetworkMqttMsgSend(GetMqttUpLinkTopic(), (void*) upLinkJson, strlen(upLinkJson));
-
+    status = NetworkMqttMsgSend(GetMqttUplinkTopic(), (void*) upLinkJson, strlen(upLinkJson));
+    if (status != SDK_SUCCESS)
+    {
+        printk("Failed (status %d) uploading pkt: %s\n", status, upLinkJson);
+    }
 
     FreeJsonString(upLinkJson);
     freeMsgAndStruct(lastUpLinkMsg->payload, lastUpLinkMsg);
